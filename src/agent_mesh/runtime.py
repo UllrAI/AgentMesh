@@ -115,13 +115,54 @@ def _command(runtime, kind, env):
     executable = shutil.which(str(prog), path=env.get("PATH", os.defpath))
     if not executable:
         raise ValueError("Runtime executable is unavailable")
-    return [str(Path(executable).absolute()), *argv[1:]]
+    executable = Path(executable).absolute()
+    if kind == "codex" and "command" not in runtime:
+        # The sandbox helper reexecutes the launcher, which must be readable.
+        executable = executable.resolve()
+    return [str(executable), *argv[1:]]
+
+
+def _is_mesh_mcp(entry):
+    command = entry.get("command")
+    if not isinstance(command, str) or Path(command).name != "agent-mesh":
+        return False
+    # The bridge allows --config and --socket before or after the subcommand.
+    args = iter(entry.get("args", ()))
+    for arg in args:
+        if arg in ("--config", "--socket"):
+            next(args, None)
+        elif not isinstance(arg, str) or not arg.startswith(("--config=", "--socket=")):
+            return arg == "mcp"
+    return False
+
+
+def _codex_settings(runtime, env):
+    home = env.get("CODEX_HOME")
+    if not runtime.get("codex_home") or not home or not Path(home).is_dir():
+        raise ValueError("Codex requires a dedicated runtime.codex_home")
+    path = Path(home) / "config.toml"
+    try:
+        with path.open("rb") as config:
+            settings = tomllib.load(config)
+    except FileNotFoundError:
+        return {}
+    servers = settings.get("mcp_servers", {})
+    if not isinstance(servers, dict) or not all(
+        isinstance(entry, dict) for entry in servers.values()
+    ):
+        raise ValueError("Invalid Codex MCP server configuration")
+    if any(
+        entry.get("enabled", True) and _is_mesh_mcp(entry) for entry in servers.values()
+    ):
+        raise ValueError("Inbound Codex cannot load the Agent Mesh MCP bridge")
+    return settings
 
 
 def _profile(runtime, method, kind, env):
     profile = method.get("permission_profile")
     if kind not in {"codex", "claude"}:
         return None
+    settings = _codex_settings(runtime, env) if kind == "codex" else {}
     if not profile:
         if runtime.get("permissions_via_host") is True:
             return None
@@ -140,20 +181,9 @@ def _profile(runtime, method, kind, env):
     if not isinstance(profile, str) or not re.fullmatch(r"[:A-Za-z0-9_-]+", profile):
         raise ValueError("Invalid Codex permission profile")
     built_in = profile in {":read-only", ":workspace", ":danger-full-access"}
-    home = Path(
-        env.get("CODEX_HOME", str(Path(env.get("HOME", "~")).expanduser() / ".codex"))
-    )
-    path = home / "config.toml"
-    if path.is_file():
-        with path.open("rb") as config:
-            settings = tomllib.load(config)
-        if "sandbox_mode" in settings or "sandbox_workspace_write" in settings:
-            raise ValueError(
-                "Legacy sandbox settings override Codex permission profiles"
-            )
-        if built_in or profile in settings.get("permissions", {}):
-            return profile
-    if not built_in:
+    if "sandbox_mode" in settings or "sandbox_workspace_write" in settings:
+        raise ValueError("Legacy sandbox settings override Codex permission profiles")
+    if not built_in and profile not in settings.get("permissions", {}):
         raise ValueError("Unknown Codex permission profile")
     return profile
 
@@ -334,16 +364,29 @@ def _invocation(kind, runtime, method, request, session_id, env, schema_path):
     if interaction == "clarify" and session_id is None:
         text = CLARIFY_INSTRUCTIONS + text
     if kind == "codex":
-        cwd = str(Path(runtime.get("workdir", ".")).expanduser().absolute())
+        cwd = Path(runtime.get("workdir", ".")).expanduser().resolve()
+        # Trusted project configuration can register its own MCP tools.
+        untrusted = ",".join(
+            f'{_json(str(folder))}={{trust_level="untrusted"}}'
+            for folder in (cwd, *cwd.parents)
+        )
         argv += [
             "exec",
             "--cd",
-            cwd,
+            str(cwd),
             "--json",
             "--color",
             "never",
             "-c",
             'approval_policy="never"',
+            "-c",
+            f"projects={{{untrusted}}}",
+            "--disable",
+            "apps",
+            "--disable",
+            "plugins",
+            "--disable",
+            "skill_mcp_dependency_install",
         ]
         if runtime.get("skip_git_repo_check", False):
             argv.append("--skip-git-repo-check")
@@ -416,6 +459,8 @@ async def _receive(kind, stdout, session_id, callback):
             continue
         event = _object(line) or {}
         event_type = event.get("type")
+        if not isinstance(event_type, str):
+            event_type = None
         new_id = None
         if kind == "codex":
             if event_type == "thread.started":
@@ -639,7 +684,7 @@ def _terminal(kind, interaction, session_id, output, missing_stderr, guard):
     )
     if (
         structured
-        and structured.get("type") in {"question", "result"}
+        and structured.get("type") in ("question", "result")
         and (kind == "command" or structured.keys() == SCHEMA["properties"].keys())
     ):
         message = structured.get("text")

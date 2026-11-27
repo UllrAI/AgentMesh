@@ -278,3 +278,9 @@ async def test_stdio_mcp_forwards_structured_tools_over_socket(daemon):
                 operation,
                 arguments if expected_payload is None else expected_payload,
             )
+
+
+def test_old_query_error_keeps_successful_job_exit_code():
+    assert not cli._failed(
+        {"status": "succeeded", "query_error": {"code": "JOB_NOT_FOUND"}}
+    )

@@ -142,6 +142,8 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _failed(result: dict[str, Any]) -> bool:
+    if result.get("status") in {"needs_input", "succeeded"}:
+        return False
     return bool(
         result.get("error")
         or result.get("invoke_error")
@@ -214,7 +216,8 @@ def _print_result(result: dict[str, Any], socket: str, interactive: bool) -> Non
     answer_status = answer.get("status", "waiting")
     if answer_status in {"answered", "pending"}:
         label = "已答复" if answer_status == "answered" else "答复待确认"
-        print(f"{label}：{answer['job_id']}")
+        ids = answer.get("pending_job_ids") or [answer["job_id"]]
+        print(f"{label}：{', '.join(ids)}")
         return
     try:
         deadline = datetime.fromtimestamp(expires_at, UTC).strftime(

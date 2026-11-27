@@ -683,18 +683,27 @@ class Store:
         if snapshot is None or snapshot["status"] != "needs_input":
             return None, None
         expires_at = snapshot["question"]["expires_at"]
-        followup = self._db.execute(
+        candidates = self._db.execute(
             """SELECT * FROM outbound WHERE answer_to=? AND target_id=? AND session_id=? AND method=?
-            AND (snapshot IS NOT NULL OR invoke_rejected=0) ORDER BY snapshot IS NULL, rowid DESC LIMIT 1""",
+            AND (snapshot IS NOT NULL OR invoke_rejected=0) ORDER BY snapshot IS NULL, rowid DESC""",
             (row["job_id"], row["target_id"], row["session_id"], row["method"]),
-        ).fetchone()
+        )
+        followup = candidates.fetchone()
         if followup is not None:
-            status = "answered" if followup["snapshot"] is not None else "pending"
-            return {
-                "status": status,
-                "job_id": followup["job_id"],
+            accepted = followup["snapshot"] is not None
+            answer = {
+                "status": "answered" if accepted else "pending",
                 "expires_at": expires_at,
-            }, followup
+            }
+            if accepted:
+                answer["job_id"] = followup["job_id"]
+            else:
+                pending = [followup["job_id"], *(item["job_id"] for item in candidates)]
+                if len(pending) == 1:
+                    answer["job_id"] = pending[0]
+                else:
+                    answer["pending_job_ids"] = pending
+            return answer, followup
         return {
             "status": "expired" if expires_at <= now else "waiting",
             "expires_at": expires_at,

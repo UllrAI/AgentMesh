@@ -38,7 +38,7 @@ runtime:
           prompt: {type: string}
 ```
 
-Provision the runtime executable, login and permissions **for the service account**. Run Codex with a dedicated configuration home. Install the named project-scoped permission profile there and verify its filesystem boundaries using that version of Codex. A working directory selects where the task starts. Filesystem isolation comes from the runtime profile or the host. Keep the inbound runtime's tools separate from the caller's Mesh bridge. Use absolute executable paths when a service has a different PATH from your shell.
+Provision the runtime executable, login and permissions **for the service account**. Run Codex with a dedicated configuration home. Install the named project-scoped permission profile there and verify its filesystem boundaries using that version of Codex. A working directory selects where the task starts. Filesystem isolation comes from the runtime profile or the host. The dedicated Codex configuration may expose tools selected by the worker owner. Direct registrations of the Mesh bridge are rejected on inbound workers. Keep wrapper scripts and organization-managed settings free of routes back into the Mesh. The worker excludes project and plugin tool injection. Use absolute executable paths when a service has a different PATH from your shell.
 
 - **Codex** runs a fresh non-interactive CLI process per turn and resumes the recorded thread. The local named profile applies on every turn. `runtime.skip_git_repo_check` can be enabled for a deliberately configured non-Git workspace.
 - **Claude Code** uses non-interactive structured events. Set `type: claude` and use a local Claude settings JSON file as the method's `permission_profile`. Configure the host sandbox for the intended filesystem boundary. Set `claude_config_dir` when using a dedicated login. Variables required by a runtime can be explicitly named in `runtime.env_allowlist`. The daemon excludes its broker password variable.
@@ -63,3 +63,26 @@ WantedBy=default.target
 The environment file uses `KEY=value` lines. On macOS use a per-user LaunchAgent with `ProgramArguments` containing the same executable and arguments, `RunAtLoad` enabled, and the broker credential available to that service. launchd arguments take literal absolute paths.
 
 A dropped caller connection does not cancel accepted work. Reconnect and use `jobs` and `job <id>` to inspect the stored snapshot. An unknown execution outcome can include partial side effects. Inspect the target before explicitly submitting a new job. On the target, keep the database and its adjacent `.runs` directory together across restarts. The supervisor tracks old subprocess groups while completed job history remains queryable.
+
+### Example Codex read-only profile
+
+The following profile was exercised with the macOS Codex CLI 0.166.0. In the worker's dedicated `config.toml`, replace the placeholder with the actual install directory containing the Codex binary. The sandbox helper needs to be able to execute it. Grant any other host-specific paths deliberately.
+
+```toml
+[permissions.mesh-project-read.filesystem]
+":root" = "deny"
+":minimal" = "read"
+":slash_tmp" = "deny"
+":tmpdir" = "deny"
+"/absolute/path/to/codex-install-directory" = "read"
+
+[permissions.mesh-project-read.filesystem.":workspace_roots"]
+"." = "read"
+
+[permissions.mesh-project-read.network]
+enabled = false
+```
+
+Verify a project read, a read outside the project, and a write from the actual service before publishing the method. The installation directory and platform baseline can be readable in addition to the named workspace. The `:minimal` baseline on the tested macOS host also granted temporary-directory reads unless explicitly restricted. Older Codex sandbox settings can override a named profile; use one permission model in the dedicated config.
+
+On the calling side, a headless MCP host with approvals disabled must grant its Mesh submit and answer tools in advance. Grant them only to a caller authorized to delegate work to that node.

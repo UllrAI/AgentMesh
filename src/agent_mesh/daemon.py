@@ -24,6 +24,9 @@ from .transport import MAX_PAYLOAD, Transport, encode
 LOG = logging.getLogger(__name__)
 LINK_ERRORS = (aiomqtt.MqttError, OSError)
 TERMINAL = {"failed", "unknown", "succeeded", "needs_input"}
+RECEIPT_TIMEOUT_S = 10
+QUERY_REPLY_TIMEOUT_S = 1
+STORAGE_RETRY_S = 1
 
 
 class LocalError(Exception):
@@ -44,15 +47,20 @@ class Mesh:
             }
             for m in self.settings["methods"]
         }
-        self.store = Store(config["job_store"])
-        self.state_dir = Path(config["job_store"] + ".runs")
+        store_path = Path(config["job_store"]).resolve()
+        self.state_dir = Path(str(store_path) + ".runs")
         self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.event = asyncio.Event()
         self.link = Transport(config, self.packet, self.changed)
         self.work = set()
-        self.recovery = self.store.recover_inbound()
+        self.query_watchers = {}
+        self.store = Store(store_path)
+        self.recovery = None
         self.pending_writes = 0
-        self.reconcile()
+        try:
+            self.reconcile()
+        except (OSError, sqlite3.Error) as exc:
+            LOG.warning("storage recovery pending (%s)", type(exc).__name__)
 
     def changed(self):
         self.event.set()
@@ -73,13 +81,21 @@ class Mesh:
             )
 
     def reconcile(self):
+        if self.recovery is None:
+            self.recovery = self.store.recover_inbound()
         for job in self.recovery[:]:
             execution = job.get("execution_id")
             if not execution or runtime.execution_ended(self.state_dir, execution):
                 self.store.release_execution(job["caller_id"], job["job_id"])
-                if execution:
-                    runtime.forget_execution(self.state_dir, execution)
                 self.recovery.remove(job)
+                if execution:
+                    self.forget_execution(execution)
+
+    def forget_execution(self, execution):
+        try:
+            runtime.forget_execution(self.state_dir, execution)
+        except OSError as exc:
+            LOG.warning("execution metadata cleanup failed (%s)", type(exc).__name__)
 
     async def maintenance(self):
         while True:
@@ -88,7 +104,7 @@ class Mesh:
                 self.store.prune()
             except (OSError, sqlite3.Error) as exc:
                 LOG.warning("storage maintenance unavailable (%s)", type(exc).__name__)
-            await asyncio.sleep(1 if self.recovery else 30)
+            await asyncio.sleep(STORAGE_RETRY_S if self.recovery != [] else 30)
 
     async def reply(self, peer, data):
         try:
@@ -104,7 +120,15 @@ class Mesh:
         if data.get("spec_version") != "1.3":
             return
         if action == "replies":
-            if self.store.record_outbound_reply(peer, data):
+            try:
+                recorded = self.store.record_outbound_reply(peer, data)
+            except sqlite3.Error as exc:
+                LOG.warning("could not persist job reply (%s)", type(exc).__name__)
+                return
+            if recorded:
+                jid = str(uuid.UUID(data["job_id"]))
+                for event in self.query_watchers.get(jid, ()):
+                    event.set()
                 self.changed()
             return
         if action != "invoke":
@@ -114,8 +138,17 @@ class Mesh:
             if isinstance(data.get("method"), str)
             else None
         )
-        ready = not self.pending_writes and (
-            method is None or runtime.ready(self.settings, method)
+        ready = (
+            self.recovery is not None
+            and not self.pending_writes
+            and (
+                method is None
+                or runtime.ready(
+                    self.settings,
+                    method,
+                    blocked_env=(self.config["mqtt"]["password_env"],),
+                )
+            )
         )
         try:
             entry = self.store.accept_inbound(
@@ -126,13 +159,18 @@ class Mesh:
                 ready=ready,
             )
         except sqlite3.Error:
-            if data.get("type") == "invoke" and isinstance(data.get("job_id"), str):
+            jid = data.get("job_id")
+            try:
+                valid_id = isinstance(jid, str) and uuid.UUID(jid).version == 4
+            except ValueError:
+                valid_id = False
+            if data.get("type") == "invoke" and valid_id:
                 await self.reply(
                     peer,
                     {
                         "spec_version": "1.3",
                         "type": "invoke_error",
-                        "job_id": data["job_id"],
+                        "job_id": jid,
                         "error": {
                             "code": "NOT_READY",
                             "message": "task store unavailable",
@@ -192,34 +230,40 @@ class Mesh:
                     "message": "runtime outcome unavailable",
                 },
             }
-        # Budget the entire reply envelope, including the store-generated question expiry.
-        if (
-            len(encode({**entry["reply"], **result, "expires_at": 9999999999}))
-            > MAX_PAYLOAD
-        ):
-            result = {
-                "status": "failed",
-                "error": {
-                    "code": "RESULT_TOO_LARGE",
-                    "message": "result exceeds MQTT payload limit",
-                },
-            }
-        fields = {k: result[k] for k in ("result", "question", "error") if k in result}
         ended = not execution or runtime.execution_ended(self.state_dir, execution)
         self.pending_writes += 1
         try:
             while True:
                 try:
-                    reply = self.store.finish_inbound(
-                        peer, jid, result["status"], **fields, release_slot=ended
-                    )
+                    try:
+                        fields = {
+                            k: result[k]
+                            for k in ("result", "question", "error")
+                            if k in result
+                        }
+                        reply = self.store.finish_inbound(
+                            peer, jid, result["status"], **fields, release_slot=ended
+                        )
+                    except (KeyError, TypeError, ValueError, RecursionError):
+                        reply = self.store.finish_inbound(
+                            peer,
+                            jid,
+                            "failed" if ended else "unknown",
+                            error={
+                                "code": "EXECUTION_ERROR"
+                                if ended
+                                else "OUTCOME_UNKNOWN",
+                                "message": "runtime produced an invalid outcome",
+                            },
+                            release_slot=ended,
+                        )
                     break
                 except sqlite3.Error:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(STORAGE_RETRY_S)
         finally:
             self.pending_writes -= 1
         if execution and ended:
-            runtime.forget_execution(self.state_dir, execution)
+            self.forget_execution(execution)
         elif not ended:
             self.recovery.append(
                 {"caller_id": peer, "job_id": jid, "execution_id": execution}
@@ -238,8 +282,12 @@ class Mesh:
         )
 
     async def retry_once(self, jid, connection):
-        await asyncio.sleep(10)
-        if self.link.client is not connection or self.link.client is None:
+        await asyncio.sleep(RECEIPT_TIMEOUT_S)
+        if (
+            self.link.client is not connection
+            or self.link.client is None
+            or self.view(jid)["invoke_error"]
+        ):
             return
         item = self.store.retry_outbound(jid)
         if item:
@@ -261,6 +309,16 @@ class Mesh:
             prior = self.view(args.get("job_id"))
             if prior["status"] != "needs_input":
                 raise LocalError("INPUT_NOT_PENDING", "expected a question job")
+            answer_state = prior["answer"]
+            if answer_state["status"] == "pending":
+                raise LocalError(
+                    "INPUT_NOT_PENDING",
+                    f"query pending answer {answer_state['job_id']} before submitting another",
+                )
+            if answer_state["status"] != "waiting":
+                raise LocalError(
+                    "INPUT_NOT_PENDING", "this question is no longer pending"
+                )
             target = prior["target_id"]
             request.update(
                 method=prior["method"],
@@ -307,44 +365,62 @@ class Mesh:
             self.start(self.retry_once(jid, connection))
         return self.view(jid)
 
+    @staticmethod
+    def settled(row):
+        error = row.get("invoke_error")
+        return row["status"] in TERMINAL or (
+            row["status"] == "unconfirmed"
+            and error
+            and error["code"] != "OUTCOME_UNKNOWN"
+        )
+
+    async def query(self, target, jid):
+        try:
+            await self.send_request(
+                target,
+                encode({"spec_version": "1.3", "type": "query", "job_id": jid}),
+                30,
+            )
+        except LINK_ERRORS:
+            pass
+
     async def status(self, args):
-        jid = args.get("job_id")
-        row = self.view(jid)
         wait = args.get("wait_timeout_s", 0)
         if type(wait) not in (int, float) or not math.isfinite(wait) or wait < 0:
             raise LocalError(
                 "INVALID_REQUEST", "wait_timeout_s must be finite and nonnegative"
             )
-        deadline = asyncio.get_running_loop().time() + wait
-        query_id = row.get("query_job_id") or jid
-        if (
-            self.link.client is not None
-            and self.view(query_id)["status"] not in TERMINAL
-        ):
-            try:
-                await self.send_request(
-                    row["target_id"],
-                    encode(
-                        {"spec_version": "1.3", "type": "query", "job_id": query_id}
-                    ),
-                    30,
-                )
-            except LINK_ERRORS:
-                pass
-        while True:
-            row = self.view(jid)
-            remaining = deadline - asyncio.get_running_loop().time()
-            if (
-                row["status"] in TERMINAL
-                or row.get("invoke_error")
-                or self.link.client is None
-                or remaining <= 0
-            ):
-                return row
-            try:
-                await asyncio.wait_for(self.event.wait(), remaining)
-            except TimeoutError:
-                return self.view(jid)
+        row = self.view(args.get("job_id"))
+        jid = row["job_id"]
+        query_id = jid if wait else row.get("query_job_id")
+        if query_id is None or self.link.client is None:
+            return row
+        if self.settled(row if query_id == jid else self.view(query_id)):
+            return row
+
+        received = asyncio.Event()
+        watchers = self.query_watchers.setdefault(query_id, set())
+        watchers.add(received)
+        probe = asyncio.create_task(self.query(row["target_id"], query_id))
+        try:
+            async with asyncio.timeout(wait or QUERY_REPLY_TIMEOUT_S):
+                while True:
+                    changed = self.event
+                    row = self.view(jid)
+                    if self.link.client is None or (
+                        self.settled(row) if wait else received.is_set()
+                    ):
+                        return row
+                    await changed.wait()
+        except TimeoutError:
+            return self.view(jid)
+        finally:
+            watchers.remove(received)
+            if not watchers:
+                del self.query_watchers[query_id]
+            probe.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await probe
 
     async def api(self, req):
         try:
@@ -384,6 +460,7 @@ class Mesh:
 
 @contextlib.contextmanager
 def instance_lock(path):
+    path = path.resolve()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with open(str(path) + ".lock", "a") as handle:
         try:
@@ -393,36 +470,73 @@ def instance_lock(path):
         yield
 
 
+async def remove_stale_socket(path):
+    try:
+        existing = path.lstat()
+    except FileNotFoundError:
+        return
+    if not stat.S_ISSOCK(existing.st_mode):
+        raise ValueError(f"socket path occupied by a non-socket: {path}")
+    try:
+        async with asyncio.timeout(QUERY_REPLY_TIMEOUT_S):
+            _, writer = await asyncio.open_unix_connection(path)
+    except ConnectionRefusedError:
+        current = path.lstat()
+        if (current.st_dev, current.st_ino) == (existing.st_dev, existing.st_ino):
+            path.unlink()
+            return
+    except FileNotFoundError:
+        return
+    except TimeoutError:
+        pass
+    else:
+        writer.close()
+    raise ValueError(f"socket already in use: {path}")
+
+
 async def serve(config):
     os.umask(0o077)
     path = Path(config["socket"])
     with instance_lock(path), instance_lock(Path(config["job_store"])):
-        if path.exists():
-            if not stat.S_ISSOCK(path.lstat().st_mode):
-                raise ValueError(f"socket path occupied by a regular file: {path}")
-            path.unlink()
+        await remove_stale_socket(path)
         mesh = Mesh(config)
         app = web.Application(client_max_size=2 * MAX_PAYLOAD)
         app.router.add_post("/v1/{action}", mesh.api)
         runner = web.AppRunner(app, access_log=None, handler_cancellation=True)
-        broker = asyncio.create_task(mesh.link.run())
-        maintenance = asyncio.create_task(mesh.maintenance())
+        tasks = []
+        bound_socket = None
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, stop.set)
+        signals = []
         try:
             await runner.setup()
             await web.UnixSite(runner, str(path)).start()
+            bound_socket = path.lstat()
             path.chmod(0o600)
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, stop.set)
+                signals.append(sig)
+            tasks = [
+                asyncio.create_task(mesh.link.run()),
+                asyncio.create_task(mesh.maintenance()),
+            ]
             await stop.wait()
         finally:
-            for sig in (signal.SIGINT, signal.SIGTERM):
+            for sig in signals:
                 loop.remove_signal_handler(sig)
-            tasks = [broker, maintenance, *mesh.work]
+            for site in tuple(runner.sites):
+                await site.stop()
+            tasks.extend(mesh.work)
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             await runner.cleanup()
             mesh.store.close()
-            path.unlink(missing_ok=True)
+            if bound_socket is not None:
+                with contextlib.suppress(FileNotFoundError):
+                    current = path.lstat()
+                    if (current.st_dev, current.st_ino) == (
+                        bound_socket.st_dev,
+                        bound_socket.st_ino,
+                    ):
+                        path.unlink()

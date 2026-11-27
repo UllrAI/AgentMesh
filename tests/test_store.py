@@ -473,3 +473,35 @@ def test_outbound_answer_chain_and_query_errors_preserve_terminal(store):
     assert detail["latest_answer"]["query_error"]["code"] == "JOB_NOT_FOUND"
     assert detail["query_job_id"] is None
     assert store.list_outbound(1)[0]["job_id"] == ordinary["job_id"]
+
+
+def test_pending_sibling_answers_have_no_assumed_winner(store):
+    session = str(uuid4())
+    parent = request()
+    store.save_outbound("target", wire(parent), now=100)
+    store.record_outbound_reply(
+        "target",
+        reply(
+            parent,
+            "needs_input",
+            session_id=session,
+            question={"text": "Scope?", "expires_at": 200},
+        ),
+    )
+    attempts = [
+        request(session_id=session, answer_to=parent["job_id"], answer_text=text)
+        for text in ("API", "Web")
+    ]
+    for attempt in attempts:
+        store.save_outbound("target", wire(attempt), now=110)
+    detail = store.get_outbound(parent["job_id"], now=111)
+    assert set(detail["answer"]["pending_job_ids"]) == {r["job_id"] for r in attempts}
+    assert "job_id" not in detail["answer"] and detail["latest_answer"] is None
+    winner = attempts[0]
+    store.record_outbound_reply(
+        "target", reply(winner, "succeeded", session_id=session, result="done")
+    )
+    assert (
+        store.get_outbound(parent["job_id"], now=112)["latest_answer"]["job_id"]
+        == winner["job_id"]
+    )

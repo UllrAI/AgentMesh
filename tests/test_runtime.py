@@ -227,6 +227,57 @@ def test_codex_legacy_sandbox_cannot_override_configured_profile(tmp_path):
     assert not runtime.ready(settings, method)
 
 
+def test_codex_uses_only_the_explicit_home_and_accepts_other_mcp(tmp_path, monkeypatch):
+    caller_home = tmp_path / "caller"
+    caller_home.mkdir()
+    (caller_home / "config.toml").write_text(
+        '[mcp_servers.mesh]\ncommand = "agent-mesh"\nargs = ["mcp"]\n'
+    )
+    monkeypatch.setenv("CODEX_HOME", str(caller_home))
+    settings = {
+        "type": "codex",
+        "workdir": str(tmp_path),
+        "command": [sys.executable],
+        "env_allowlist": ["CODEX_HOME"],
+    }
+    method = {"permission_profile": ":read-only"}
+    assert not runtime.ready(settings, method)
+    settings["codex_home"] = str(tmp_path)
+    config = tmp_path / "config.toml"
+    config.write_text(
+        '[mcp_servers.mesh]\ncommand = "/opt/docs/bin/read-docs"\nargs = ["mcp"]\n'
+        '[mcp_servers.other]\ncommand = "agent-mesh"\nargs = ["--socket", "mcp", "jobs"]\n'
+    )
+    assert runtime.ready(settings, method)
+
+
+@pytest.mark.parametrize(
+    ("command", "args"),
+    [
+        ("agent-mesh", ["mcp"]),
+        ("/opt/mesh/bin/agent-mesh", ["mcp", "--socket", "/tmp/current.sock"]),
+        (
+            "./.venv/bin/agent-mesh",
+            ["--config", "/tmp/config.yaml", "--socket=/tmp/current.sock", "mcp"],
+        ),
+    ],
+)
+def test_codex_rejects_an_enabled_direct_mesh_bridge(tmp_path, command, args):
+    settings = {
+        "type": "codex",
+        "workdir": str(tmp_path),
+        "command": [sys.executable],
+        "codex_home": str(tmp_path),
+    }
+    method = {"permission_profile": ":read-only"}
+    config = tmp_path / "config.toml"
+    entry = f"[mcp_servers.arbitrary_label]\ncommand = {json.dumps(command)}\nargs = {json.dumps(args)}\n"
+    config.write_text(entry)
+    assert not runtime.ready(settings, method)
+    config.write_text(entry + "enabled = false\n")
+    assert runtime.ready(settings, method)
+
+
 async def test_claude_stream_uses_structured_result_and_current_settings(tmp_path):
     session_id = str(uuid4())
     profile = tmp_path / "settings.json"
