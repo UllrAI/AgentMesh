@@ -86,3 +86,14 @@ enabled = false
 Verify a project read, a read outside the project, and a write from the actual service before publishing the method. The installation directory and platform baseline can be readable in addition to the named workspace. The `:minimal` baseline on the tested macOS host also granted temporary-directory reads unless explicitly restricted. Older Codex sandbox settings can override a named profile; use one permission model in the dedicated config.
 
 On the calling side, a headless MCP host with approvals disabled must grant its Mesh submit and answer tools in advance. Grant them only to a caller authorized to delegate work to that node.
+
+### Local demo on Linux with AppArmor
+
+Some Linux packages confine the broker to files under system directories. If it reports that it cannot open your generated config, start the demo broker in its official container on Linux. Run the other three terminals on the host as usual. This mounts only the demo directory and uses the loopback listener from the generated config.
+
+```sh
+demo_dir="$HOME/.agent-mesh/demo"
+docker run --rm --network host --user "$(id -u):$(id -g)" \
+  -v "$demo_dir:$demo_dir" eclipse-mosquitto:2 \
+  mosquitto -c "$demo_dir/mosquitto.conf"
+```

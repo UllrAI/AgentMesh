@@ -8,13 +8,14 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    container: ubuntu:24.04
     strategy:
       matrix:
         python: ['3.11', '3.13']
     steps:
+      - run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git mosquitto mosquitto-clients
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: sudo apt-get update && sudo apt-get install -y mosquitto mosquitto-clients
       - run: uv sync --locked --python ${{ matrix.python }}
       - run: uv run pytest -q
       - run: uv build
