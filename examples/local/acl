@@ -1,0 +1,17 @@
+user caller
+topic read agents/+/card
+topic read agents/+/status
+topic write agents/caller/card
+topic write agents/caller/status
+topic read agents/caller/invoke/+
+topic read agents/caller/replies/+
+topic write agents/worker/invoke/caller
+
+user worker
+topic read agents/+/card
+topic read agents/+/status
+topic write agents/worker/card
+topic write agents/worker/status
+topic read agents/worker/invoke/+
+topic read agents/worker/replies/+
+topic write agents/caller/replies/worker
