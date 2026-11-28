@@ -26,7 +26,7 @@ Chromium on macOS connected to the two-node Mosquitto demo. The node and task pa
 
 | User action | Observed behavior |
 | --- | --- |
-| 1. Open the workbench and select a node | The node directory opens first. The caller is marked as local and the worker lists its method. Refreshing this page requests only discovery. Stopping the worker leaves its card visible as offline. Disconnecting the broker changes its status to unknown. [Light appearance](images/node-workspace.zh-CN.png) · [Dark appearance](images/node-workspace.png) |
+| 1. Open the workbench and select a node | The node directory opens first. The caller is marked as local and the worker lists its method. Refreshing this page requests only discovery. Stopping the worker leaves its card visible as offline. Disconnecting the broker changes its status to unknown. [Chinese interface](images/node-workspace.zh-CN.png) · [English interface](images/node-workspace.png) |
 | 2. Call a method | With two methods on one worker, choosing the second submitted to that exact method. The completed result opened in Tasks. [Method form](images/call-method.zh-CN.png) |
 | 3. Answer a question | Two requests produced identical questions. Choosing one by its local request preview and answering it left the other pending. The answer draft survived reloading and switching views. English JSON submission and a follow-up in the same session also succeeded. [Answer form](images/task-workbench.zh-CN.png) |
 

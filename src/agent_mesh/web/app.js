@@ -1,8 +1,11 @@
 const language = {
   nodes: ["Nodes", "节点"],
   tasks: ["Tasks", "任务"],
+  nodesDescription: ["Discover nodes and call the methods they expose.", "查看已发现的节点，调用它们公开的方法。"],
+  tasksDescription: ["Track requests, read results, and answer questions from nodes.", "跟进请求、查看结果，或回答节点提出的问题。"],
+  skipToContent: ["Skip to content", "跳到主要内容"],
   mainNavigation: ["Main navigation", "主导航"],
-  nodeDirectory: ["Discovered nodes", "已发现的节点"],
+  nodeDirectory: ["Node directory", "节点目录"],
   noNodes: ["No nodes have been discovered yet.", "尚未发现节点。"],
   selectNode: ["Select a node", "选择节点"],
   nodeHint: ["Select a node to view its capabilities.", "选择节点查看它提供的能力。"],
@@ -12,7 +15,7 @@ const language = {
   nodeOnline: ["Online", "在线"],
   nodeOffline: ["Offline", "离线"],
   nodeUnknown: ["Unknown", "未知"],
-  capabilities: ["Capabilities", "能力"],
+  capabilities: ["Capabilities", "公开能力"],
   noCapabilities: ["This node does not advertise any capabilities.", "此节点未公开能力。"],
   singleTurn: ["Single turn", "单轮"],
   multiTurn: ["Multi-turn", "可续接"],
@@ -46,7 +49,8 @@ const language = {
   brokerOnline: ["Broker connected", "Broker 已连接"],
   brokerOffline: ["Broker disconnected", "Broker 已断开"],
   accessTitle: ["Open the local access link", "使用本地访问链接"],
-  accessMessage: ["Open a fresh link from the CLI to view your mesh.", "请使用 CLI 生成的新链接打开工作台。"],
+  accessMessage: ["Run the command below, then open the link it prints.", "运行下方命令，再打开它输出的链接。"],
+  accessCommand: ["Workbench command", "工作台启动命令"],
   noJobs: ["No tasks yet. Start a task or check back after your next CLI or MCP call.", "暂无任务。可发起任务，CLI 或 MCP 的调用也会显示在这里。"],
   noWaiting: ["No unanswered questions in the latest 100 rounds.", "最近 100 轮没有待回答的问题。"],
   noSelection: ["Select a task", "选择任务"],
@@ -68,6 +72,8 @@ const language = {
   round: ["Reply round", "答复轮"],
   roundRequest: ["Request", "本轮请求"],
   roundReplyText: ["Reply text", "本轮答复"],
+  question: ["Agent question", "节点提问"],
+  result: ["Result", "执行结果"],
   waitingReceipt: ["Waiting for confirmation from the agent.", "正在等待目标节点确认。"],
   noOutput: ["The agent returned no output.", "节点未返回输出。"],
   previousRound: ["Open the previous question", "查看上一轮问题"],
@@ -363,8 +369,7 @@ function renderHeader() {
   const issue = localIssue();
   let status = "connectionLoading";
   let color = "";
-  if (!state.token) status = "accessTitle";
-  else if (issue) {
+  if (issue) {
     status = issue;
     color = "bad";
   } else if (brokerOffline()) {
@@ -378,16 +383,19 @@ function renderHeader() {
     status = "localAvailable";
   }
   byId("connection").className = `connection ${color}`;
-  byId("connection-label").textContent = t(status);
+  byId("connection").hidden = !state.token;
+  if (byId("connection-label").textContent !== t(status)) byId("connection-label").textContent = t(status);
   byId("refresh").disabled = !state.token || !!state.refreshRequest;
+  byId("refresh").hidden = !state.token;
   byId("new-task").disabled = !state.token;
   byId("new-task").hidden = !state.token || state.view !== "tasks";
   byId("access").hidden = !!state.token;
   byId("main-navigation").hidden = !state.token;
   byId("nodes-pane").hidden = !state.token || state.view !== "nodes";
   byId("workspace").hidden = !state.token || state.view !== "tasks";
-  const title = t(state.view);
+  const title = t(state.token ? state.view : "accessTitle");
   byId("page-title").textContent = title;
+  byId("page-description").textContent = t(state.token ? `${state.view}Description` : "accessMessage");
   document.title = `${title} · Agent Mesh`;
   for (const view of ["nodes", "tasks"]) {
     const tab = byId(`${view}-nav`);
@@ -398,6 +406,12 @@ function renderHeader() {
 
 function capabilityCount(count) {
   return state.locale ? `${count} 项能力` : `${count} ${count === 1 ? "capability" : "capabilities"}`;
+}
+
+function detailIdentity(heading, status, metadata) {
+  const header = node("header", "detail-identity", node("div", "detail-header", heading, status));
+  if (metadata.length) header.append(node("p", "detail-meta", ...metadata));
+  return header;
 }
 
 function nodeStatus(status) {
@@ -421,9 +435,13 @@ function nodeRows() {
 let nodeListKey = "";
 function renderNodeList(rows) {
   setMessage("nodes-error", state.agentError ? `${t("targetError")} ${errorMessage(state.agentError)}` : "");
-  const isMissingLocalCard = state.localNode && !agent(state.localNode);
+  const isMissingLocalNode = state.localNode && !agent(state.localNode);
   const emptyMessage = !state.agentReady ? "loading" : "noNodes";
-  const localIdentity = isMissingLocalCard ? `${t("localNode")} · ${state.localNode}` : "";
+  const localIdentity = isMissingLocalNode ? `${t("localNode")} · ${state.localNode}` : "";
+  const count = rows.length;
+  setMessage("node-count", state.agentReady
+    ? state.locale ? `${count} 个节点` : `${count} ${count === 1 ? "node" : "nodes"}`
+    : "");
   setMessage("local-node-note", localIdentity);
   setMessage("nodes-empty", rows.length || state.agentError ? "" : t(emptyMessage));
 
@@ -435,13 +453,16 @@ function renderNodeList(rows) {
   list.replaceChildren(...rows.map((item) => {
     const row = button("", "task-row node-row", () => selectNode(item.id, { scroll: true }));
     row.dataset.node = item.id;
+    row.setAttribute("aria-controls", "node-panel");
     if (item.id === state.nodeId) row.setAttribute("aria-current", "true");
-    const name = node("span", "node-name-line", node("strong", "node-name", item.label));
+    const name = node("strong", "node-name", item.label);
     if (item.local) name.append(node("span", "local-mark", t("localNode")));
-    const meta = [item.label !== item.id ? item.id : "", capabilityCount(item.methods.length)].filter(Boolean).join(" · ");
-    row.append(name, nodeStatus(item.status), node("span", "task-meta", meta));
+    const meta = node("span", "task-meta");
+    if (item.label !== item.id) meta.append(node("code", "", item.id), " · ");
+    meta.append(capabilityCount(item.methods.length));
+    row.append(name, nodeStatus(item.status), meta);
     if (item.methods.length) {
-      row.append(node("span", "task-preview node-method-preview", item.methods.slice(0, 3).join(" · ")));
+      row.append(node("code", "task-preview", item.methods.slice(0, 3).join(" · ")));
     }
     return node("li", "", row);
   }));
@@ -465,32 +486,32 @@ function renderNodeDetail(selected) {
 
   const heading = node("h2", "node-detail-title", selected.label);
   heading.id = "node-title";
-  const header = node("div", "detail-header", heading, nodeStatus(selected.status));
-  const meta = [selected.label !== selected.id ? selected.id : "", selected.local ? t("localNode") : ""].filter(Boolean);
-  const views = [header];
-  if (meta.length) views.push(node("p", "detail-meta", meta.join(" · ")));
-  const capabilitiesHeader = node("div", "capability-header",
-    node("h3", "", t("capabilities")),
-    node("span", "capability-count", String(methods.length)));
-  views.push(capabilitiesHeader);
+  const meta = [];
+  if (selected.label !== selected.id) meta.push(node("code", "", selected.id));
+  if (selected.local) meta.push(node("span", "", t("localNode")));
+  const headingMethods = node("h3", "", t("capabilities"));
+  headingMethods.id = "capability-title";
+  const available = node("section", "", node("header", "capability-header", headingMethods));
+  available.setAttribute("aria-labelledby", headingMethods.id);
   if (!methods.length) {
-    views.push(node("p", "capability-empty", t("noCapabilities")));
+    available.append(node("p", "capability-empty", t("noCapabilities")));
   } else {
-    if (blocked) views.push(node("p", "capability-empty", t("cannotSubmit")));
-    views.push(node("ul", "capability-list", ...methods.map((capability) => {
-      const action = button(t("call"), "button primary capability-call", (event) =>
+    if (blocked) available.append(node("p", "capability-empty", t("cannotSubmit")));
+    available.append(node("ul", "capability-list", ...methods.map((capability) => {
+      const action = button(t("call"), "button capability-call", (event) =>
         openComposer({ target: selected.id, method: capability.method, opener: event.currentTarget }));
       action.setAttribute("aria-label", `${t("call")} ${capability.method}`);
       action.disabled = blocked;
       const interaction = capability.interaction === "clarify" ? "clarify"
         : capability.interaction === "session" ? "multiTurn" : "singleTurn";
-      const title = node("h4", "capability-method", capability.method);
-      const body = node("div", "capability-body", title, node("p", "capability-behavior", t(interaction)));
+      const title = node("h4", "capability-method", node("code", "", capability.method));
+      const body = node("div", "capability-body", title);
       if (capability.description) body.append(node("p", "capability-text", capability.description));
+      body.append(node("p", "capability-behavior", t(interaction)));
       return node("li", "capability-item", body, action);
     })));
   }
-  host.replaceChildren(...views);
+  host.replaceChildren(detailIdentity(heading, nodeStatus(selected.status), meta), available);
 }
 
 function renderNodes() {
@@ -509,7 +530,10 @@ function selectNode(id, { scroll = false } = {}) {
     persist();
     renderNodes();
   }
-  if (scroll && matchMedia("(max-width: 675px)").matches) byId("node-panel").scrollIntoView({ block: "start" });
+  if (scroll && matchMedia("(max-width: 720px)").matches) {
+    byId("node-panel").focus({ preventScroll: true });
+    byId("node-panel").scrollIntoView({ block: "start" });
+  }
 }
 
 let queueKey = "";
@@ -518,13 +542,12 @@ function renderQueue() {
   const waiting = all.filter((item) => questionState(item) === "waiting");
   const rows = (state.filter === "waiting" ? waiting : all).map((job) => {
     const request = requestPreview(job);
-    const meta = [agentLabel(job.target_id), formatTime(job.submitted_at, true)];
-    if (request) meta.unshift(job.method);
     return {
       id: job.job_id,
       title: request || job.method || t("method"),
       request: !!request,
-      meta: meta.filter(Boolean).join(" · "),
+      method: request ? job.method : "",
+      meta: [agentLabel(job.target_id), formatTime(job.submitted_at, true)].filter(Boolean).join(" · "),
       label: displayState(job),
       preview: preview(job),
     };
@@ -544,11 +567,15 @@ function renderQueue() {
   const makeRow = (item) => {
     const row = button("", "task-row", () => selectJob(item.id, { scroll: true }));
     row.dataset.job = item.id;
+    row.setAttribute("aria-controls", "detail-panel");
     if (item.id === state.selected) row.setAttribute("aria-current", "true");
+    const meta = node("span", "task-meta");
+    if (item.method) meta.append(node("code", "", item.method), " · ");
+    meta.append(item.meta);
     row.append(
       node("strong", item.request ? "task-title" : "task-method", item.title),
       statusBadge(item.label),
-      node("span", "task-meta", item.meta),
+      meta,
     );
     if (item.preview) row.append(node("span", "task-preview", item.preview));
     return node("li", "", row);
@@ -624,14 +651,17 @@ function turn(job, title) {
   }
   const request = requestPreview(job);
   if (request) {
-    view.append(node("div", "request-preview",
-      node("p", "request-title", t(job.answer_to ? "roundReplyText" : "roundRequest")),
+    view.append(node("div", "turn-section",
+      node("p", "turn-label", t(job.answer_to ? "roundReplyText" : "roundRequest")),
       node("p", "request-text", request)));
   }
   if (snapshot.question?.text) {
-    view.append(node("p", "output question", snapshot.question.text));
+    const question = node("div", "turn-section",
+      node("p", "turn-label", t("question")),
+      node("p", "output question", snapshot.question.text));
     const deadline = snapshot.question.expires_at;
-    if (deadline) view.append(node("p", "turn-caption", `${t(questionState(job) === "expired" ? "wasDue" : "deadline")} · ${formatTime(deadline)}`));
+    if (deadline) question.append(node("p", "turn-caption", `${t(questionState(job) === "expired" ? "wasDue" : "deadline")} · ${formatTime(deadline)}`));
+    view.append(question);
     if (questionState(job) === "pending" || questionState(job) === "answered") {
       const pendingIds = job.answer?.pending_job_ids || [job.answer?.job_id || state.sentAnswers.get(job.job_id)].filter(Boolean);
       if (pendingIds.length) {
@@ -643,7 +673,8 @@ function turn(job, title) {
   } else if (snapshot.result != null) {
     const text = resultText(snapshot.result);
     const formatted = typeof snapshot.result === "object" && text !== snapshot.result.text;
-    view.append(node("pre", formatted ? "output mono" : "output", text || t("noOutput")));
+    view.append(node("div", "turn-section", node("p", "turn-label", t("result")),
+      node(formatted ? "pre" : "p", formatted ? "output mono" : "output", text || t("noOutput"))));
   } else if (stateOf(job) === "unconfirmed" && !job.invoke_error) {
     view.append(node("p", "turn-caption", t("waitingReceipt")));
   }
@@ -662,6 +693,7 @@ function renderReply(activeJob) {
   if (state.currentReply !== id) {
     state.currentReply = id;
     input.value = id ? state.drafts[id] || "" : "";
+    input.removeAttribute("aria-invalid");
   }
   if (!id) return;
   input.disabled = currentlySending;
@@ -678,17 +710,20 @@ function renderDetails() {
   const activeJob = rounds[rounds.length - 1];
   const statuses = rounds.map(displayState);
   const targetStatus = root ? agentStatus(root.target_id) : null;
-  const key = JSON.stringify([state.locale, state.selected, rounds, statuses, targetStatus, state.detailError?.message, !!state.detailRequest]);
+  const key = JSON.stringify([state.locale, state.selected, rounds, statuses, targetStatus, state.detailError?.message]);
   renderReply(activeJob);
   if (key === detailKey) return;
   detailKey = key;
   const host = byId("detail-content");
+  const metadataHost = byId("task-metadata");
+  metadataHost.hidden = !root;
   if (!root) {
     const title = state.detailError ? "taskUnavailable" : state.selected ? "loading" : "noSelection";
     const heading = node("h2", "", t(title));
     heading.id = "detail-title";
     const note = state.detailError ? errorMessage(state.detailError) : t("detailHint");
     host.replaceChildren(node("div", "empty", heading, node("p", "", note)));
+    metadataHost.replaceChildren();
     return;
   }
   const heading = node("h2", "detail-title", root.method);
@@ -705,10 +740,8 @@ function renderDetails() {
       target: activeJob.target_id, method: activeJob.method, session: sessionId, opener: event.currentTarget,
     })));
   }
-  const view = [
-    node("div", "detail-header", heading, statusBadge(displayState(activeJob))),
-    node("p", "detail-meta", metadata.join(" · ")),
-  ];
+  const view = [detailIdentity(heading, statusBadge(displayState(activeJob)),
+    metadata.map((value) => node("span", "", value)))];
   if (state.detailError) view.push(node("p", "notice warning", `${t("loadError")} ${errorMessage(state.detailError)}`));
   for (const [index, job] of rounds.entries()) {
     const title = rounds.length === 1 ? "" : index === 0 ? "originalRound"
@@ -716,9 +749,12 @@ function renderDetails() {
     view.push(turn(job, title));
   }
   if (actions.childElementCount) view.push(actions);
-  const previousInfo = host.querySelector(".task-info");
-  view.push(information(rounds, previousInfo?.dataset.job === root.job_id && previousInfo.open));
+  const previousInfo = metadataHost.firstElementChild;
+  const taskInfo = information(rounds, previousInfo?.dataset.job === root.job_id && previousInfo.open);
+  const restoreSummary = document.activeElement === previousInfo?.firstElementChild;
   host.replaceChildren(...view);
+  metadataHost.replaceChildren(taskInfo);
+  if (restoreSummary) taskInfo.firstElementChild.focus({ preventScroll: true });
 }
 
 function render() {
@@ -842,7 +878,10 @@ function selectJob(id, { query = true, scroll = false, detail = null } = {}) {
     render();
     if (query) void refreshDetail();
   }
-  if (scroll && matchMedia("(max-width: 675px)").matches) byId("detail-panel").scrollIntoView({ block: "start" });
+  if (scroll && matchMedia("(max-width: 720px)").matches) {
+    byId("detail-panel").focus({ preventScroll: true });
+    byId("detail-panel").scrollIntoView({ block: "start" });
+  }
 }
 
 function composer() {
@@ -865,10 +904,18 @@ function showComposer() {
   const draft = composer();
   byId("prompt-input").value = draft.prompt || "";
   byId("json-input").value = draft.json || "";
+  byId("prompt-input").removeAttribute("aria-invalid");
+  byId("json-input").removeAttribute("aria-invalid");
   byId("capability-schema").open = false;
   setMessage("compose-message", "");
   renderComposer();
-  if (!byId("compose").open) byId("compose").showModal();
+  const dialog = byId("compose");
+  if (dialog.open) return;
+  const inputId = draft.format === "json" ? "json-input" : "prompt-input";
+  const firstField = byId(draft.pinned || draft.session ? inputId : "target");
+  firstField.autofocus = true;
+  dialog.showModal();
+  firstField.autofocus = false;
 }
 
 function restoreComposerFocus() {
@@ -931,7 +978,8 @@ function renderComposer() {
     select.required = !pinned;
   }
   byId("compose-title").textContent = t(draft.session ? "continueSession" : "newTask");
-  setMessage("compose-session", draft.session ? `${t("sessionId")} · ${draft.session}` : "");
+  byId("compose-session").hidden = !draft.session;
+  byId("compose-session-id").textContent = draft.session || "";
   const capability = methods.find((item) => item.method === draft.method);
   setMessage("capability-description", capability?.description);
   byId("capability-schema").hidden = !capability?.input_schema;
@@ -944,7 +992,7 @@ function renderComposer() {
   else if (!capability && availability === "online") targetMessage = t("methodUnavailable");
   if (state.agentError) targetMessage = `${t("targetError")} ${errorMessage(state.agentError)}`;
   if (!state.agentReady && !state.agentError) targetMessage = t("loading");
-  byId("target-status").textContent = targetMessage;
+  if (byId("target-status").textContent !== targetMessage) byId("target-status").textContent = targetMessage;
   byId("format").value = draft.format || "prompt";
   byId("prompt-field").hidden = draft.format === "json";
   byId("json-field").hidden = draft.format !== "json";
@@ -965,12 +1013,14 @@ async function submitTask(event) {
       if (!params || Array.isArray(params) || typeof params !== "object") throw new TypeError();
     } catch {
       setMessage("compose-message", t("requireObject"));
+      byId("json-input").setAttribute("aria-invalid", "true");
       byId("json-input").focus();
       return;
     }
   } else {
     if (!draft.prompt?.trim()) {
       setMessage("compose-message", t("requirePrompt"));
+      byId("prompt-input").setAttribute("aria-invalid", "true");
       byId("prompt-input").focus();
       return;
     }
@@ -1020,6 +1070,7 @@ async function submitReply(event) {
   const text = byId("reply-input").value;
   if (!text.trim()) {
     setMessage("reply-message", t("requireReply"));
+    byId("reply-input").setAttribute("aria-invalid", "true");
     byId("reply-input").focus();
     return;
   }
@@ -1062,6 +1113,10 @@ byId("language").addEventListener("click", () => {
   applyLanguage();
   render();
 });
+document.querySelector(".vbg-skip-link").addEventListener("click", (event) => {
+  event.preventDefault();
+  byId("main").focus();
+});
 byId("refresh").addEventListener("click", () => {
   void refreshLists();
   void refreshDetail();
@@ -1094,18 +1149,25 @@ byId("method").addEventListener("change", (event) => {
 });
 byId("format").addEventListener("change", (event) => {
   composer().format = event.target.value;
+  byId("prompt-input").removeAttribute("aria-invalid");
+  byId("json-input").removeAttribute("aria-invalid");
   persist();
   setMessage("compose-message", "");
   renderComposer();
 });
 for (const [id, field] of [["prompt-input", "prompt"], ["json-input", "json"]]) {
   byId(id).addEventListener("input", (event) => {
+    if (event.target.hasAttribute("aria-invalid")) {
+      event.target.removeAttribute("aria-invalid");
+      setMessage("compose-message", "");
+    }
     composer()[field] = event.target.value;
     persist();
   });
 }
 byId("reply-input").addEventListener("input", (event) => {
   if (!state.currentReply) return;
+  event.target.removeAttribute("aria-invalid");
   state.drafts[state.currentReply] = event.target.value;
   state.replyErrors.delete(state.currentReply);
   persist();
@@ -1126,4 +1188,7 @@ setInterval(() => {
 }, pollInterval);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void refreshLists();
+});
+window.addEventListener("hashchange", () => {
+  if (new URLSearchParams(location.hash.slice(1)).has("token")) location.reload();
 });

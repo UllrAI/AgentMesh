@@ -64,6 +64,15 @@ uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock"
 
 打开任务页可以找回此前发出的请求、查看结果或回答澄清问题。如果两项任务收到了相同的问题，可以用请求摘要辨认。你可以在两个页面之间切换，任务会照常继续。
 
+![任务页展示近期请求、待回答状态和当前任务的答复表单。](docs/images/task-workbench.zh-CN.png)
+
+<details>
+<summary>查看方法调用表单</summary>
+
+![方法调用表单展示目标节点、调用方法、输入约定和提示词字段。](docs/images/call-method.zh-CN.png)
+
+</details>
+
 命令默认打开浏览器。加 `--no-open` 时，命令会打印链接供你手动打开。界面按浏览器语言显示中文或英文，明暗外观跟随系统。在工作台所在终端按 Ctrl+C 关闭页面服务，调用方 Daemon 和已接受的任务会继续运行。[工作台访问说明](docs/deployment.md#local-workbench)
 
 ## 使用 CLI
