@@ -27,7 +27,7 @@ def create_app(socket: str, token: str) -> web.Application:
         name = req.path.lstrip("/") or "index.html"
         headers = {
             "Cache-Control": "no-cache",
-            "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'",
+            "Content-Security-Policy": "default-src 'self'; object-src 'none'; base-uri 'none'",
             "Referrer-Policy": "no-referrer",
         }
         if name.endswith(".woff2"):

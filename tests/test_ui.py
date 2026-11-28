@@ -64,6 +64,8 @@ async def test_ui_serves_assets_without_contacting_daemon(
     async with ui.get(path) as response:
         assert response.status == 200
         assert response.content_type in content_types
+        assert "frame-ancestors" not in response.headers["Content-Security-Policy"]
+        assert "X-Frame-Options" not in response.headers
         assert (await response.read()).strip()
     assert calls == []
 
