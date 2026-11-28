@@ -10,7 +10,7 @@ A grant to call a target authorizes all methods currently or subsequently expose
 
 ## Worker configuration
 
-The daemon reads a YAML file and the password variable named in `mqtt.password_env`. The CLI and MCP bridge need only the local socket. A Codex worker configuration might look like this:
+The daemon reads a YAML file and the password variable named in `mqtt.password_env`. Local clients use the daemon's Unix socket. A Codex worker configuration might look like this:
 
 ```yaml
 agent_id: orders-worker
@@ -63,6 +63,18 @@ WantedBy=default.target
 The environment file uses `KEY=value` lines. On macOS use a per-user LaunchAgent with `ProgramArguments` containing the same executable and arguments, `RunAtLoad` enabled, and the broker credential available to that service. launchd arguments take literal absolute paths.
 
 A dropped caller connection does not cancel accepted work. Reconnect and use `jobs` and `job <id>` to inspect the stored snapshot. An unknown execution outcome can include partial side effects. Inspect the target before explicitly submitting a new job. On the target, keep the database and its adjacent `.runs` directory together across restarts. The supervisor tracks old subprocess groups while completed job history remains queryable.
+
+### Local workbench
+
+Start the workbench on the host running the caller daemon and point it at that daemon's Unix socket. The node view opens first and shows discovered nodes, their online status, and descriptions of their advertised methods. Start a request from a method on the target node.
+
+Use the task view to revisit requests, read results, and answer clarifying questions. The workbench uses the same outbound history as the CLI and MCP bridge, and tasks continue while you switch views. The caller can keep a preview of a submitted prompt or clarification answer in its SQLite job record after removing the original request bytes. Use the existing job details when a preview is unavailable.
+
+```sh
+uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock" --no-open
+```
+
+The workbench picks a random port on the loopback interface. The printed link contains a temporary access credential. Open the complete link in a browser on the caller host and keep it private while the workbench runs. Omit `--no-open` to open the browser automatically. The caller daemon handles calls and replies over its MQTT connection, including after you stop the page server with Ctrl+C.
 
 ### Example Codex read-only profile
 

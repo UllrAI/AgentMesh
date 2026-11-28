@@ -2,15 +2,18 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-Ask an agent on another machine to do work, answer its follow-up questions, and retrieve the result after a disconnect. Agent Mesh connects private agents through an MQTT 5 broker. Each host makes one outbound connection and keeps its own job history in SQLite. A local CLI and six MCP tools talk to the same daemon over a Unix socket.
+Ask an agent on another machine to do work, answer its follow-up questions, and retrieve the result after a disconnect. Agent Mesh connects private agents through an MQTT 5 broker. Each host makes one outbound connection and keeps its own job history in SQLite. The CLI, six MCP tools, and an on-demand browser workbench use the same local daemon over a Unix socket.
 
 For example, a laptop assistant can discover an agent with access to the orders repository on a VM, request a read-only analysis, and answer “API only” in the original session. The VM owner configures the available methods, working directory and runtime permissions.
 
 ## How a call works
 
 ```text
-CLI or MCP host → caller daemon → MQTT 5 broker → worker daemon → local runtime
-                      SQLite                          SQLite
+Local workbench, CLI, or MCP bridge
+       │ Unix socket
+  caller daemon → MQTT 5 broker → worker daemon → local runtime
+       │                                │
+     SQLite                           SQLite
 ```
 
 Each invocation gets a `job_id`. A multi-turn method also returns a `session_id`. A worker can finish a round with a question and release its execution slot while you decide. Answering creates a new job in the same session. Discovery and status use retained MQTT messages; requests and replies expire. SQLite lets either daemon recover the last confirmed state independently of the terminal.
@@ -43,7 +46,25 @@ uv run agent-mesh serve --config "$HOME/.agent-mesh/demo/caller.yaml"
 
 On Linux distributions that restrict the Mosquitto service to system configuration paths, use the [container command](docs/deployment.md#local-demo-on-linux-with-apparmor) for Terminal 1.
 
-In a fourth terminal, list the nodes and call the worker. It asks which part of the project to analyze. The CLI prints an answer command containing the question's actual job ID.
+## Open the local workbench
+
+![The node directory shows the local caller, the worker, and its advertised method.](docs/images/node-workspace.png)
+
+The workbench opens on the node view. See which nodes the caller has discovered, check their online status, and read what their methods do. Choose a method on the target node to send a request.
+
+With the demo caller daemon running, use a fourth terminal on the same machine.
+
+```sh
+uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock"
+```
+
+Open the task view to find an earlier request, read its result, or answer a clarifying question. If two jobs have the same question, use the request previews to find the right one. You can switch between views while your tasks continue to run.
+
+The command opens the browser by default. Use `--no-open` to print the link and open it yourself. The interface uses English or Chinese based on your browser language and follows your system’s light or dark appearance. Press Ctrl+C in the workbench terminal to stop its page server. The caller daemon and accepted tasks continue running. [Workbench access details](docs/deployment.md#local-workbench)
+
+## Use the CLI
+
+In a separate terminal, list the nodes and call the worker. It asks which part of the project to analyze. The CLI prints an answer command containing the question's actual job ID.
 
 ```sh
 export AGENT_MESH_SOCKET="$HOME/.agent-mesh/demo/caller.sock"

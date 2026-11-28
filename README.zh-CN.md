@@ -9,14 +9,14 @@ Agent Mesh 让本地助手发现并调用其他机器上的私有 Agent。你可
 ## 两节点如何协作
 
 ```text
-本地 CLI 或 MCP 客户端
+本地工作台、CLI 或 MCP 桥
         │ Unix Socket
     调用方 Daemon ── MQTT 5 Broker ── 执行方 Daemon ── Runtime Adapter
         │                                │
    本地 SQLite                        本地 SQLite
 ```
 
-两台机器的 Daemon 都主动连到 Broker。Broker 按 ACL 转发发现信息、请求和回复，执行方 Daemon 在本机启动配置好的 Runtime。需要澄清时，执行方结束当前轮次并释放执行槽，收到答复后再继续会话。两个节点分别把任务记录保存在自己的 SQLite 数据库。CLI 和 MCP 桥接到同一个本地 Unix Socket，可以查到同一份调用记录。
+两台机器的 Daemon 都主动连到 Broker。Broker 按 ACL 转发发现信息、请求和回复，执行方 Daemon 在本机启动配置好的 Runtime。需要澄清时，执行方结束当前轮次并释放执行槽，收到答复后再继续会话。两个节点分别把任务记录保存在自己的 SQLite 数据库。CLI、MCP 和按需启动的浏览器工作台通过同一个本地 Unix Socket 访问任务记录。
 
 ## 本地启动两个节点
 
@@ -50,10 +50,27 @@ uv run agent-mesh serve --config "$HOME/.agent-mesh/demo/caller.yaml"
 
 如果 Linux 发行版限制 Mosquitto 只能读取系统配置路径，终端 1 可使用[容器启动命令](docs/deployment.md#local-demo-on-linux-with-apparmor)。
 
-第四个终端先确认 `worker` 在线，再发起分析。没有指定范围时，Echo 会问要分析 API 还是 Web。交互式 CLI 会显示带实际任务 ID 的答复命令。
+## 打开本地工作台
+
+![工作台的节点页展示已发现的节点、在线状态和可调用的方法。](docs/images/node-workspace.zh-CN.png)
+
+工作台默认打开节点页。你可以查看已发现的节点、在线状态以及每个方法能做什么。选中目标节点公开的方法，即可发起调用。
+
+启动示例的 `caller` Daemon 后，在同一台机器的第四个终端运行以下命令。
 
 ```sh
-# 终端 4
+uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock"
+```
+
+打开任务页可以找回此前发出的请求、查看结果或回答澄清问题。如果两项任务收到了相同的问题，可以用请求摘要辨认。你可以在两个页面之间切换，任务会照常继续。
+
+命令默认打开浏览器。加 `--no-open` 时，命令会打印链接供你手动打开。界面按浏览器语言显示中文或英文，明暗外观跟随系统。在工作台所在终端按 Ctrl+C 关闭页面服务，调用方 Daemon 和已接受的任务会继续运行。[工作台访问说明](docs/deployment.md#local-workbench)
+
+## 使用 CLI
+
+在另一个终端先确认 `worker` 在线，再发起分析。没有指定范围时，Echo 会问要分析 API 还是 Web。交互式 CLI 会显示带实际任务 ID 的答复命令。
+
+```sh
 export AGENT_MESH_SOCKET="$HOME/.agent-mesh/demo/caller.sock"
 uv run agent-mesh list
 uv run agent-mesh call worker demo.analyze --prompt 'Analyze the module boundaries' --wait

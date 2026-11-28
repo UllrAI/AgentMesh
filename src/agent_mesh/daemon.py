@@ -429,7 +429,11 @@ class Mesh:
                 raise ValueError("expected a JSON object")
             action = req.match_info["action"]
             if action == "list":
-                result = {"agents": self.link.list_agents(args.get("method"))}
+                result = {
+                    "local_id": self.config["agent_id"],
+                    "broker_connected": self.link.client is not None,
+                    "agents": self.link.list_agents(args.get("method")),
+                }
             elif action == "inspect":
                 result = self.link.cards.get(args.get("agent_id"))
                 if result is None:

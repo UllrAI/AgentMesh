@@ -106,6 +106,8 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     serve = commands.add_parser("serve", help="启动本地 Daemon")
+    ui = commands.add_parser("ui", help="查看节点、公开能力和任务")
+    ui.add_argument("--no-open", action="store_true", help="仅打印访问链接")
     mcp = commands.add_parser("mcp", help="通过标准输入输出启动 MCP 桥")
     discover = commands.add_parser("list", help="列出 Agent、在线状态和能力")
     discover.add_argument("--method", help="仅列出公开此方法的 Agent")
@@ -136,7 +138,7 @@ def _parser() -> argparse.ArgumentParser:
     job = commands.add_parser("job", help="查看指定轮次的状态")
     job.add_argument("job_id")
     job.add_argument("--wait-timeout-s", type=_wait_timeout, help="本地等待时限（秒）")
-    for command in (serve, mcp, discover, inspect, call, answer, jobs, job):
+    for command in (serve, ui, mcp, discover, inspect, call, answer, jobs, job):
         _socket_options(command)
     return parser
 
@@ -252,6 +254,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         socket = socket_path(socket_arg, config_file)
+        if args.command == "ui":
+            from .ui import serve_ui
+
+            asyncio.run(serve_ui(socket, open_browser=not args.no_open))
+            return 0
         if args.command == "serve":
             from .daemon import serve
 
