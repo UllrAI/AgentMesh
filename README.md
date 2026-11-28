@@ -60,6 +60,8 @@ uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock"
 
 Open the task view to find an earlier request, read its result, or answer a clarifying question. If two jobs have the same question, use the request previews to find the right one. You can switch between views while your tasks continue to run.
 
+![The task workbench in dark mode shows a completed request and its result.](docs/images/task-workbench.png)
+
 The command opens the browser by default. Use `--no-open` to print the link and open it yourself. The interface uses English or Chinese based on your browser language and follows your system’s light or dark appearance. Press Ctrl+C in the workbench terminal to stop its page server. The caller daemon and accepted tasks continue running. [Workbench access details](docs/deployment.md#local-workbench)
 
 ## Use the CLI

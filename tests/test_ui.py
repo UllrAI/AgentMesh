@@ -52,6 +52,9 @@ async def ui(daemon):
         ("/", {"text/html"}),
         ("/app.js", {"text/javascript", "application/javascript"}),
         ("/style.css", {"text/css"}),
+        ("/vercel-brand.css", {"text/css"}),
+        ("/geist.woff2", {"font/woff2"}),
+        ("/geist-mono.woff2", {"font/woff2"}),
     ],
 )
 async def test_ui_serves_assets_without_contacting_daemon(
@@ -61,7 +64,7 @@ async def test_ui_serves_assets_without_contacting_daemon(
     async with ui.get(path) as response:
         assert response.status == 200
         assert response.content_type in content_types
-        assert (await response.text()).strip()
+        assert (await response.read()).strip()
     assert calls == []
 
 

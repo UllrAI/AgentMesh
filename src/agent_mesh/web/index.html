@@ -6,72 +6,104 @@
   <meta name="referrer" content="no-referrer">
   <meta name="color-scheme" content="light dark">
   <title>Agent Mesh</title>
+  <link rel="stylesheet" href="/vercel-brand.css">
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
-<body>
+<body class="vbg-report mesh">
+  <a class="vbg-skip-link" href="#main" data-text="skipToContent"></a>
   <header class="topbar">
-    <div class="topbar-inner">
-      <div class="brand">Agent Mesh</div>
+    <div class="shell topbar-inner">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M7 8v8h5m5-8v8h-5v3"/>
+          <rect x="4.5" y="3" width="5" height="5" rx="1"/>
+          <rect x="14.5" y="3" width="5" height="5" rx="1"/>
+          <rect x="9.5" y="18" width="5" height="5" rx="1"/>
+        </svg>
+        <span>Agent Mesh</span>
+      </div>
       <nav id="main-navigation" class="main-navigation" data-label="mainNavigation" hidden>
         <button type="button" class="nav-button" id="nodes-nav" aria-controls="nodes-pane" aria-current="page" data-text="nodes"></button>
         <button type="button" class="nav-button" id="tasks-nav" aria-controls="workspace" data-text="tasks"></button>
       </nav>
       <div class="toolbar">
-        <span id="connection" class="connection"><span class="connection-dot" aria-hidden="true"></span><span id="connection-label"></span></span>
+        <span id="connection" class="connection" role="status"><span class="connection-dot" aria-hidden="true"></span><span id="connection-label"></span></span>
         <button type="button" id="language" class="button language"></button>
-        <button type="button" id="refresh" class="button" disabled><span class="refresh-glyph" aria-hidden="true">↻</span><span data-text="refresh"></span></button>
-        <button type="button" id="new-task" class="button primary" disabled hidden><span class="plus" aria-hidden="true">+</span><span data-text="newTask"></span></button>
+        <button type="button" id="refresh" class="button" data-label="refresh" disabled>
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13 6a5.4 5.4 0 1 0 .2 3.7M13 2.75V6H9.75"/>
+          </svg>
+          <span data-text="refresh"></span>
+        </button>
       </div>
     </div>
   </header>
 
-  <main class="main">
-    <h1 id="page-title"></h1>
-    <div id="announcements" class="sr-only" role="status"></div>
-    <section id="access" class="empty access" hidden>
-      <h2 data-text="accessTitle"></h2>
-      <p data-text="accessMessage"></p>
+  <main class="shell main" id="main" tabindex="-1">
+    <header class="page-header">
+      <div class="page-intro">
+        <h1 class="vbg-title" id="page-title"></h1>
+        <p id="page-description"></p>
+      </div>
+      <button type="button" id="new-task" class="button primary" disabled hidden>
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" aria-hidden="true">
+          <path d="M8 3v10M3 8h10"/>
+        </svg>
+        <span data-text="newTask"></span>
+      </button>
+    </header>
+    <div id="announcements" class="vbg-visually-hidden" role="status"></div>
+    <section id="access" class="access" hidden data-label="accessCommand">
+      <code>agent-mesh ui</code>
     </section>
     <div id="nodes-pane" class="workspace" hidden>
-      <section class="queue surface" aria-labelledby="directory-title">
-        <h2 id="directory-title" class="sr-only" data-text="nodeDirectory"></h2>
+      <section class="queue" aria-labelledby="directory-title">
+        <div class="queue-header">
+          <div class="queue-heading">
+            <h2 id="directory-title" data-text="nodeDirectory"></h2>
+            <span id="node-count" class="queue-scope" hidden></span>
+          </div>
+        </div>
         <p id="local-node-note" class="local-node-note" hidden></p>
-        <p id="nodes-error" class="notice warning queue-error" role="status" hidden></p>
-        <div id="nodes-empty" class="empty" hidden></div>
+        <p id="nodes-error" class="notice warning" role="status" hidden></p>
+        <p id="nodes-empty" class="queue-empty" role="status" hidden></p>
         <ul id="node-list" class="task-list node-list"></ul>
       </section>
-      <section id="node-panel" class="detail surface" aria-labelledby="node-title">
+      <section id="node-panel" class="detail" aria-labelledby="node-title" tabindex="-1">
         <div id="node-content"></div>
       </section>
     </div>
     <div id="workspace" class="workspace" hidden>
-      <section class="queue surface" aria-labelledby="queue-title">
+      <section class="queue" aria-labelledby="queue-title">
         <div class="queue-header">
-          <h2 id="queue-title" class="sr-only" data-text="taskList"></h2>
+          <div class="queue-heading">
+            <h2 id="queue-title" data-text="taskList"></h2>
+            <span class="queue-scope" data-text="recentScope"></span>
+          </div>
           <div class="filters" role="group" data-label="taskFilters">
             <button type="button" class="filter" id="recent-filter" aria-pressed="true" data-text="recent"></button>
             <button type="button" class="filter" id="waiting-filter" aria-pressed="false">
               <span data-text="waiting"></span><span id="waiting-count" class="filter-count" hidden></span>
             </button>
           </div>
-          <span class="queue-scope" data-text="recentScope"></span>
         </div>
-        <p id="queue-error" class="notice warning queue-error" role="status" hidden></p>
-        <div id="queue-empty" class="empty" hidden></div>
+        <p id="queue-error" class="notice warning" role="status" hidden></p>
+        <p id="queue-empty" class="queue-empty" role="status" hidden></p>
         <ul id="task-list" class="task-list"></ul>
       </section>
 
-      <section id="detail-panel" class="detail surface" aria-labelledby="detail-title" tabindex="-1">
+      <section id="detail-panel" class="detail" aria-labelledby="detail-title" tabindex="-1">
         <div id="detail-content"></div>
         <form id="reply-form" class="reply-form" hidden>
           <label for="reply-input" data-text="replyLabel"></label>
-          <textarea id="reply-input" rows="3" required data-placeholder="replyPlaceholder"></textarea>
+          <textarea id="reply-input" rows="3" required data-placeholder="replyPlaceholder" aria-describedby="reply-message"></textarea>
           <div class="form-footer">
             <p id="reply-message" class="form-message" role="status" hidden></p>
             <button type="submit" id="reply-submit" class="button primary" data-text="sendReply"></button>
           </div>
         </form>
+        <div id="task-metadata" class="task-metadata" hidden></div>
       </section>
     </div>
   </main>
@@ -80,21 +112,26 @@
     <form id="compose-form">
       <header class="dialog-header">
         <h2 id="compose-title" data-text="newTask"></h2>
-        <button type="button" id="close-compose" class="button close" data-label="close">×</button>
+        <button type="button" id="close-compose" class="button close" data-label="close">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" aria-hidden="true">
+            <path d="m4 4 8 8m0-8-8 8"/>
+          </svg>
+        </button>
       </header>
       <div class="dialog-body">
-        <p id="compose-context" class="compose-context" hidden>
-          <span id="compose-node" class="compose-node"></span>
-          <span class="compose-context-separator" aria-hidden="true">·</span>
-          <code id="compose-method" class="compose-method"></code>
-        </p>
-        <p id="compose-session" class="session-line" hidden></p>
-        <div id="compose-selects" class="form-columns">
-          <label><span data-text="target"></span><select id="target" required></select></label>
-          <label><span data-text="method"></span><select id="method" required></select></label>
+        <div class="compose-target">
+          <div id="compose-context" class="compose-context" hidden>
+            <span id="compose-node" class="compose-node"></span>
+            <code id="compose-method" class="compose-method"></code>
+          </div>
+          <p id="compose-session" class="session-line" hidden><span data-text="sessionId"></span> <code id="compose-session-id"></code></p>
+          <div id="compose-selects" class="form-columns">
+            <label><span data-text="target"></span><select id="target" required></select></label>
+            <label><span data-text="method"></span><select id="method" required></select></label>
+          </div>
+          <p id="capability-description" class="capability-description" hidden></p>
+          <p id="target-status" class="target-status" role="status"></p>
         </div>
-        <p id="capability-description" class="capability-description" hidden></p>
-        <p id="target-status" class="target-status"></p>
         <details id="capability-schema" class="schema" hidden>
           <summary data-text="inputSchema"></summary>
           <pre id="schema-text"></pre>
@@ -106,10 +143,10 @@
           </select>
         </label>
         <label id="prompt-field"><span data-text="prompt"></span>
-          <textarea id="prompt-input" rows="5" data-placeholder="promptPlaceholder"></textarea>
+          <textarea id="prompt-input" rows="5" data-placeholder="promptPlaceholder" aria-describedby="compose-message"></textarea>
         </label>
         <label id="json-field" hidden><span data-text="jsonParams"></span>
-          <textarea id="json-input" rows="5" class="mono" spellcheck="false" placeholder='{"prompt": "…"}'></textarea>
+          <textarea id="json-input" rows="5" class="mono" spellcheck="false" placeholder='{"prompt": "…"}' aria-describedby="compose-message"></textarea>
         </label>
         <p id="compose-message" class="form-message" role="alert" hidden></p>
       </div>

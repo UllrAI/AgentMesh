@@ -25,16 +25,23 @@ def create_app(socket: str, token: str) -> web.Application:
 
     async def asset(req):
         name = req.path.lstrip("/") or "index.html"
-        return web.FileResponse(
-            ASSETS / name,
-            headers={
-                "Cache-Control": "no-cache",
-                "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'",
-                "Referrer-Policy": "no-referrer",
-            },
-        )
+        headers = {
+            "Cache-Control": "no-cache",
+            "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'",
+            "Referrer-Policy": "no-referrer",
+        }
+        if name.endswith(".woff2"):
+            headers["Content-Type"] = "font/woff2"
+        return web.FileResponse(ASSETS / name, headers=headers)
 
-    for path in ("/", "/app.js", "/style.css"):
+    for path in (
+        "/",
+        "/app.js",
+        "/style.css",
+        "/vercel-brand.css",
+        "/geist.woff2",
+        "/geist-mono.woff2",
+    ):
         app.router.add_get(path, asset)
 
     def error(status, code, message):
