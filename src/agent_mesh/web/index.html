@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light">
+  <title>Agent Mesh</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="mesh-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span>Agent Mesh</span>
+      </div>
+      <div class="toolbar">
+        <span id="connection" class="connection"><span class="connection-dot" aria-hidden="true"></span><span id="connection-label"></span></span>
+        <button type="button" id="language" class="button language"></button>
+        <button type="button" id="refresh" class="button" disabled><span class="refresh-glyph" aria-hidden="true">↻</span><span data-text="refresh"></span></button>
+        <button type="button" id="new-task" class="button primary" disabled><span class="plus" aria-hidden="true">+</span><span data-text="newTask"></span></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <h1 data-text="workspace"></h1>
+    <div id="announcements" class="sr-only" role="status"></div>
+    <section id="access" class="empty access" hidden>
+      <h2 data-text="accessTitle"></h2>
+      <p data-text="accessMessage"></p>
+    </section>
+    <div id="workspace" class="workspace" hidden>
+      <section class="queue surface" aria-labelledby="queue-title">
+        <div class="queue-header">
+          <h2 id="queue-title" class="sr-only" data-text="taskList"></h2>
+          <div class="filters" role="group" data-label="taskFilters">
+            <button type="button" class="filter" id="recent-filter" aria-pressed="true" data-text="recent"></button>
+            <button type="button" class="filter" id="waiting-filter" aria-pressed="false">
+              <span data-text="waiting"></span><span id="waiting-count" class="filter-count" hidden></span>
+            </button>
+          </div>
+          <span class="queue-scope" data-text="recentScope"></span>
+        </div>
+        <p id="queue-error" class="notice warning queue-error" role="status" hidden></p>
+        <div id="queue-empty" class="empty" hidden></div>
+        <ul id="task-list" class="task-list"></ul>
+      </section>
+
+      <section id="detail-panel" class="detail surface" aria-labelledby="detail-title">
+        <div id="detail-content"></div>
+        <form id="reply-form" class="reply-form" hidden>
+          <label for="reply-input" data-text="replyLabel"></label>
+          <textarea id="reply-input" rows="3" required data-placeholder="replyPlaceholder"></textarea>
+          <div class="form-footer">
+            <p id="reply-message" class="form-message" role="status" hidden></p>
+            <button type="submit" id="reply-submit" class="button primary" data-text="sendReply"></button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="compose" aria-labelledby="compose-title">
+    <form id="compose-form">
+      <header class="dialog-header">
+        <h2 id="compose-title" data-text="newTask"></h2>
+        <button type="button" id="close-compose" class="button close" data-label="close">×</button>
+      </header>
+      <div class="dialog-body">
+        <p id="compose-session" class="session-line" hidden></p>
+        <div class="form-columns">
+          <label><span data-text="target"></span><select id="target" required></select></label>
+          <label><span data-text="method"></span><select id="method" required></select></label>
+        </div>
+        <p id="capability-description" class="capability-description" hidden></p>
+        <p id="target-status" class="target-status"></p>
+        <details id="capability-schema" class="schema" hidden>
+          <summary data-text="inputSchema"></summary>
+          <pre id="schema-text"></pre>
+        </details>
+        <label class="format-field"><span data-text="format"></span>
+          <select id="format">
+            <option value="prompt" data-text="prompt"></option>
+            <option value="json" data-text="jsonParams"></option>
+          </select>
+        </label>
+        <label id="prompt-field"><span data-text="prompt"></span>
+          <textarea id="prompt-input" rows="5" data-placeholder="promptPlaceholder"></textarea>
+        </label>
+        <label id="json-field" hidden><span data-text="jsonParams"></span>
+          <textarea id="json-input" rows="5" class="mono" spellcheck="false" placeholder='{"prompt": "…"}'></textarea>
+        </label>
+        <p id="compose-message" class="form-message" role="alert" hidden></p>
+      </div>
+      <div class="dialog-footer">
+        <button type="button" id="cancel-compose" class="button" data-text="cancel"></button>
+        <button type="submit" id="compose-submit" class="button primary" data-text="submitTask"></button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

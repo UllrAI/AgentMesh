@@ -9,14 +9,14 @@ Agent Mesh 让本地助手发现并调用其他机器上的私有 Agent。你可
 ## 两节点如何协作
 
 ```text
-本地 CLI 或 MCP 客户端
+本地工作台、CLI 或 MCP 桥
         │ Unix Socket
     调用方 Daemon ── MQTT 5 Broker ── 执行方 Daemon ── Runtime Adapter
         │                                │
    本地 SQLite                        本地 SQLite
 ```
 
-两台机器的 Daemon 都主动连到 Broker。Broker 按 ACL 转发发现信息、请求和回复，执行方 Daemon 在本机启动配置好的 Runtime。需要澄清时，执行方结束当前轮次并释放执行槽，收到答复后再继续会话。两个节点分别把任务记录保存在自己的 SQLite 数据库。CLI 和 MCP 桥接到同一个本地 Unix Socket，可以查到同一份调用记录。
+两台机器的 Daemon 都主动连到 Broker。Broker 按 ACL 转发发现信息、请求和回复，执行方 Daemon 在本机启动配置好的 Runtime。需要澄清时，执行方结束当前轮次并释放执行槽，收到答复后再继续会话。两个节点分别把任务记录保存在自己的 SQLite 数据库。CLI、MCP 和按需启动的浏览器工作台通过同一个本地 Unix Socket 访问任务记录。
 
 ## 本地启动两个节点
 
@@ -102,6 +102,20 @@ uv run agent-mesh job "$JOB_ID" --wait-timeout-s 50
 SESSION_ID='替换为上一轮的 session_id'
 uv run agent-mesh call worker demo.analyze --session "$SESSION_ID" --prompt 'Which module owns the API routes?' --wait
 ```
+
+## 打开本地任务工作台
+
+![两个任务提出相同问题时，可根据请求摘要选中订单任务并就地答复。](docs/images/task-workbench.zh-CN.png)
+
+任务还没结束就关了终端，或者一时记不起任务 ID，可以在工作台找回最近发出的任务，查看结果或答复澄清问题。同一方法对不同任务提出相同问题时，可以通过请求摘要认出要处理的任务。要从浏览器发起任务，选择已发现的 Agent 和它公开的方法即可。
+
+启动示例的 `caller` Daemon 后，在同一台机器的仓库目录运行以下命令。
+
+```sh
+uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock"
+```
+
+命令默认打开浏览器。加 `--no-open` 时，命令会打印链接供你手动打开。界面按浏览器语言显示中文或英文。在工作台所在终端按 Ctrl+C 关闭页面服务，调用方 Daemon 和已接受的任务会继续运行。[工作台访问说明](docs/deployment.md#local-task-workbench)
 
 ## 接入 MCP 客户端
 

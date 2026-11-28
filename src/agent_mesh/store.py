@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS outbound (
     invoke_error TEXT,
     query_error TEXT,
     invoke_rejected INTEGER NOT NULL DEFAULT 0,
-    payload BLOB
+    payload BLOB,
+    request_preview TEXT
 );
 CREATE INDEX IF NOT EXISTS outbound_answers ON outbound(answer_to);
 """
@@ -149,6 +150,17 @@ def _valid_invoke(request):
     return isinstance(request.get("params"), dict)
 
 
+def _request_preview(request):
+    text = (
+        request["answer_text"]
+        if "answer_text" in request
+        else request["params"].get("prompt")
+    )
+    if not isinstance(text, str):
+        return None
+    return " ".join(text.split())[:120] or None
+
+
 class Store:
     def __init__(
         self, path, *, retention_s=86400, session_ttl_s=86400, question_ttl_s=86400
@@ -161,6 +173,7 @@ class Store:
             self._db.row_factory = sqlite3.Row
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.executescript(SCHEMA)
+            self._upgrade_outbound()
         except BaseException:
             self._db.close()
             raise
@@ -178,6 +191,17 @@ class Store:
             if self._db.in_transaction:
                 self._db.execute("ROLLBACK")
             raise
+
+    def _upgrade_outbound(self):
+        column = (
+            "SELECT 1 FROM pragma_table_info('outbound') WHERE name='request_preview'"
+        )
+        if self._db.execute(column).fetchone() is None:
+            with self._transaction():
+                if self._db.execute(column).fetchone() is None:
+                    self._db.execute(
+                        "ALTER TABLE outbound ADD COLUMN request_preview TEXT"
+                    )
 
     def _inbound(self, caller_id, job_id):
         return self._db.execute(
@@ -569,8 +593,9 @@ class Store:
         ):
             raise ValueError("Invalid outbound invocation")
         self._db.execute(
-            """INSERT INTO outbound (job_id, target_id, method, submitted_at, expires_at, session_id, answer_to, payload)
-            VALUES (?,?,?,?,?,?,?,?)""",
+            """INSERT INTO outbound
+            (job_id, target_id, method, submitted_at, expires_at, session_id, answer_to, payload, request_preview)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
             (
                 job_id,
                 target_id,
@@ -580,6 +605,7 @@ class Store:
                 _uuid(request.get("session_id")),
                 _uuid(request.get("answer_to")),
                 payload,
+                _request_preview(request),
             ),
         )
         return self.get_outbound(job_id, now=now)
@@ -722,6 +748,7 @@ class Store:
                 "expires_at",
                 "session_id",
                 "answer_to",
+                "request_preview",
             )
         }
         summary.update(

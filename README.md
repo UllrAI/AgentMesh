@@ -2,15 +2,18 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-Ask an agent on another machine to do work, answer its follow-up questions, and retrieve the result after a disconnect. Agent Mesh connects private agents through an MQTT 5 broker. Each host makes one outbound connection and keeps its own job history in SQLite. A local CLI and six MCP tools talk to the same daemon over a Unix socket.
+Ask an agent on another machine to do work, answer its follow-up questions, and retrieve the result after a disconnect. Agent Mesh connects private agents through an MQTT 5 broker. Each host makes one outbound connection and keeps its own job history in SQLite. The CLI, six MCP tools, and an on-demand browser workbench use the same local daemon over a Unix socket.
 
 For example, a laptop assistant can discover an agent with access to the orders repository on a VM, request a read-only analysis, and answer “API only” in the original session. The VM owner configures the available methods, working directory and runtime permissions.
 
 ## How a call works
 
 ```text
-CLI or MCP host → caller daemon → MQTT 5 broker → worker daemon → local runtime
-                      SQLite                          SQLite
+Local workbench, CLI, or MCP bridge
+       │ Unix socket
+  caller daemon → MQTT 5 broker → worker daemon → local runtime
+       │                                │
+     SQLite                           SQLite
 ```
 
 Each invocation gets a `job_id`. A multi-turn method also returns a `session_id`. A worker can finish a round with a question and release its execution slot while you decide. Answering creates a new job in the same session. Discovery and status use retained MQTT messages; requests and replies expire. SQLite lets either daemon recover the last confirmed state independently of the terminal.
@@ -63,6 +66,20 @@ uv run agent-mesh call worker demo.analyze --params '{"prompt":"Analyze the modu
 ### Find a task again
 
 `jobs` reads recent outbound tasks from the caller's local database, including when offline. Use `job JOB_ID` to see the current snapshot and the latest confirmed answer. A `needs_input` result carries a question and deadline. A `succeeded` result carries the output. For an independent follow-up in the same conversation, call the original target and method with `--session SESSION_ID`. Interactive calls wait up to 30 seconds by default. Use `--async` to return immediately or `--wait` in a script.
+
+## Open the local task workbench
+
+[View the demo workbench answering a clarification (Simplified Chinese screenshot).](docs/images/task-workbench.zh-CN.png)
+
+If you closed the terminal before a task finished or have several tasks in flight, the workbench lets you find recent outbound jobs, answer clarifying questions, and read results. A short preview of the submitted text helps identify the right job when the worker asks identical questions about different requests. To start a task from the browser, choose a discovered agent and one of its advertised methods.
+
+With the demo caller daemon running, start the workbench from the checkout on the same machine.
+
+```sh
+uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock"
+```
+
+The command opens the browser by default. Use `--no-open` to print the link and open it yourself. The interface uses English or Chinese based on your browser language. Press Ctrl+C in the workbench terminal to stop its page server. The caller daemon and accepted tasks continue running. [Workbench access details](docs/deployment.md#local-task-workbench)
 
 ## Connect an MCP client
 

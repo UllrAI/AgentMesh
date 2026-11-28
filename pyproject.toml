@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ullrai-agent-mesh"
 version = "0.1.0"
-description = "Discover and call private agents over MQTT 5 from a CLI or MCP client"
+description = "Discover and call private agents over MQTT 5 from a browser, CLI, or MCP client"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

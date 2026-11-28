@@ -12,9 +12,11 @@ import tempfile
 import textwrap
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 import aiomqtt
+import httpx
 import pytest
 import yaml
 from mcp import ClientSession, StdioServerParameters
@@ -303,6 +305,51 @@ async def test_cli_and_mcp_find_lost_question_after_broker_reconnect(demo):
             answer["job_id"],
             followup["job_id"],
         }
+
+
+async def test_browser_workbench_answers_a_cli_task(demo):
+    await demo.start_node("worker")
+    await demo.start_node("caller")
+    await demo.expect_node("caller", "worker", "online")
+    question = await demo.cli(
+        "caller", "call", "worker", METHOD, "--prompt", "Review orders", "--wait"
+    )
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        *CLI,
+        "ui",
+        "--config",
+        str(demo.config("caller")),
+        "--no-open",
+        stdout=asyncio.subprocess.PIPE,
+        env=demo.env,
+    )
+    try:
+        link = urlsplit(
+            (await asyncio.wait_for(process.stdout.readline(), 5)).decode().strip()
+        )
+        assert link.hostname == "127.0.0.1"
+        token = parse_qs(link.fragment)["token"][0]
+        async with httpx.AsyncClient(
+            base_url=link._replace(fragment="").geturl(),
+            headers={"Authorization": f"Bearer {token}"},
+            trust_env=False,
+        ) as browser:
+            jobs = (await browser.post("/api/jobs", json={})).json()["jobs"]
+            assert jobs[0]["job_id"] == question["job_id"]
+            assert jobs[0]["answer"]["status"] == "waiting"
+            answer = await browser.post(
+                "/api/answer", json={"job_id": question["job_id"], "text": "API"}
+            )
+            answer.raise_for_status()
+    finally:
+        await stop(process)
+
+    result = await demo.cli(
+        "caller", "job", answer.json()["job_id"], "--wait-timeout-s", "5"
+    )
+    assert result["session_id"] == question["session_id"]
+    assert result["result"]["text"] == "Review orders | API"
 
 
 async def test_target_sigkill_recovers_history_and_execution_slot(demo):

@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from threading import Barrier
 from uuid import uuid4
 
@@ -382,6 +383,83 @@ def test_unknown_runtime_outcome_keeps_slot_while_normal_error_releases_it(store
     assert receive(store, request())["execute"]
 
 
+def test_legacy_outbound_database_is_upgraded_without_backfilling_requests(tmp_path):
+    path = tmp_path / "jobs.db"
+    old = request(params={"prompt": "Still in the retry window"})
+    old_payload = wire(old)
+    fresh = request(params={"prompt": "New task"})
+    with closing(sqlite3.connect(path)) as database, database:
+        database.execute("""CREATE TABLE outbound (
+            job_id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL,
+            method TEXT NOT NULL,
+            submitted_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            session_id TEXT,
+            answer_to TEXT,
+            snapshot TEXT,
+            invoke_error TEXT,
+            query_error TEXT,
+            invoke_rejected INTEGER NOT NULL DEFAULT 0,
+            payload BLOB
+        )""")
+        database.execute(
+            """INSERT INTO outbound (job_id, target_id, method, submitted_at, expires_at, payload)
+            VALUES (?,?,?,?,?,?)""",
+            (
+                old["job_id"],
+                "target",
+                old["method"],
+                100,
+                old["expires_at"],
+                old_payload,
+            ),
+        )
+
+    with closing(Store(path)) as store:
+        assert store.get_outbound(old["job_id"])["request_preview"] is None
+        assert store.retry_outbound(old["job_id"], now=110) == (
+            "target",
+            old_payload,
+            20,
+        )
+        store.save_outbound("target", wire(fresh), now=110)
+
+    with closing(Store(path)) as store:
+        assert [row["request_preview"] for row in store.list_outbound()] == [
+            "New task",
+            None,
+        ]
+
+
+def test_outbound_preview_distinguishes_tasks_using_the_same_method(store):
+    first = request(
+        params={"prompt": "  分析\t模块　边界\r\n", "scope": {"token": "private"}}
+    )
+    second = request(params={"prompt": "检查  " + "🧩" * 130})
+    for item in (first, second):
+        assert item["method"] == METHOD
+        store.save_outbound("target", wire(item), now=100)
+
+    assert store.get_outbound(first["job_id"])["request_preview"] == "分析 模块 边界"
+    assert (
+        store.get_outbound(second["job_id"])["request_preview"] == "检查 " + "🧩" * 117
+    )
+    assert [row["request_preview"] for row in store.list_outbound()] == [
+        "检查 " + "🧩" * 117,
+        "分析 模块 边界",
+    ]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{"scope": "private"}, {"prompt": {"text": "private"}}, {"prompt": " \t\n　"}],
+)
+def test_outbound_preview_ignores_other_params_and_blank_values(store, params):
+    job = request(params=params)
+    assert store.save_outbound("target", wire(job), now=100)["request_preview"] is None
+
+
 def test_outbound_retry_uses_persisted_payload_and_clears_raw_after_snapshot(tmp_path):
     path = tmp_path / "jobs.db"
     job = request()
@@ -406,11 +484,17 @@ def test_outbound_retry_uses_persisted_payload_and_clears_raw_after_snapshot(tmp
             "target", reply(job, "accepted", execution_timeout_s=40)
         )
         assert store.retry_outbound(job["job_id"], now=111) is None
+        assert (
+            store.get_outbound(job["job_id"])["request_preview"]
+            == "Analyze the modules"
+        )
 
-        expired = request()
+        expired = request(params={"prompt": "Expiring\n task"})
         store.save_outbound("target", wire(expired), now=100)
         store.prune(now=130)
-        assert store.get_outbound(expired["job_id"])["snapshot"] is None
+        expired_record = store.get_outbound(expired["job_id"])
+        assert expired_record["snapshot"] is None
+        assert expired_record["request_preview"] == "Expiring task"
         with sqlite3.connect(path) as connection:
             assert connection.execute("SELECT payload FROM outbound").fetchall() == [
                 (None,),
@@ -423,7 +507,9 @@ def test_outbound_retry_uses_persisted_payload_and_clears_raw_after_snapshot(tmp
 def test_outbound_answer_chain_and_query_errors_preserve_terminal(store):
     session = str(uuid4())
     first = request()
-    second = request(session_id=session, answer_to=first["job_id"], answer_text="API")
+    second = request(
+        session_id=session, answer_to=first["job_id"], answer_text=" \t仅分析\n API  "
+    )
     last = request(session_id=session, answer_to=second["job_id"], answer_text="today")
     refused = request(session_id=session, answer_to=first["job_id"], answer_text="Web")
     ordinary = request(session_id=session)
@@ -449,6 +535,7 @@ def test_outbound_answer_chain_and_query_errors_preserve_terminal(store):
     store.save_outbound("target", wire(last), now=111)
     detail = store.get_outbound(first["job_id"], now=120)
     assert detail["answer"]["status"] == "answered"
+    assert detail["latest_answer"]["request_preview"] == "仅分析 API"
     assert detail["latest_answer"]["answer"]["job_id"] == last["job_id"]
     assert detail["latest_answer"]["answer"]["status"] == "pending"
     assert detail["query_job_id"] is None
