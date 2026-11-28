@@ -106,7 +106,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     serve = commands.add_parser("serve", help="启动本地 Daemon")
-    ui = commands.add_parser("ui", help="打开本地任务工作台")
+    ui = commands.add_parser("ui", help="查看节点、公开能力和任务")
     ui.add_argument("--no-open", action="store_true", help="仅打印访问链接")
     mcp = commands.add_parser("mcp", help="通过标准输入输出启动 MCP 桥")
     discover = commands.add_parser("list", help="列出 Agent、在线状态和能力")

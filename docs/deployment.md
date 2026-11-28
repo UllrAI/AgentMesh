@@ -64,11 +64,11 @@ The environment file uses `KEY=value` lines. On macOS use a per-user LaunchAgent
 
 A dropped caller connection does not cancel accepted work. Reconnect and use `jobs` and `job <id>` to inspect the stored snapshot. An unknown execution outcome can include partial side effects. Inspect the target before explicitly submitting a new job. On the target, keep the database and its adjacent `.runs` directory together across restarts. The supervisor tracks old subprocess groups while completed job history remains queryable.
 
-### Local task workbench
+### Local workbench
 
-Start the workbench on the host running the caller daemon. Point it at that daemon's Unix socket to see the same outbound jobs as the CLI and MCP bridge.
+Start the workbench on the host running the caller daemon and point it at that daemon's Unix socket. The node view opens first and shows discovered nodes, their online status, and descriptions of their advertised methods. Start a request from a method on the target node.
 
-When a prompt or clarification answer has a preview, the caller keeps that excerpt in its SQLite job record after removing the original request bytes. Older jobs and requests without suitable text can still be identified by their existing details.
+Use the task view to revisit requests, read results, and answer clarifying questions. The workbench uses the same outbound history as the CLI and MCP bridge, and tasks continue while you switch views. The caller can keep a preview of a submitted prompt or clarification answer in its SQLite job record after removing the original request bytes. Use the existing job details when a preview is unavailable.
 
 ```sh
 uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock" --no-open

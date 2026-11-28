@@ -1,5 +1,23 @@
 const language = {
-  workspace: ["Task workspace", "任务工作台"],
+  nodes: ["Nodes", "节点"],
+  tasks: ["Tasks", "任务"],
+  mainNavigation: ["Main navigation", "主导航"],
+  nodeDirectory: ["Discovered nodes", "已发现的节点"],
+  noNodes: ["No nodes have been discovered yet.", "尚未发现节点。"],
+  selectNode: ["Select a node", "选择节点"],
+  nodeHint: ["Select a node to view its capabilities.", "选择节点查看它提供的能力。"],
+  nodeMissing: ["The selected node has not been discovered.", "当前未发现所选节点。"],
+  chooseNode: ["Choose a node from the directory.", "可从目录中选择节点。"],
+  localNode: ["Local", "本机"],
+  nodeOnline: ["Online", "在线"],
+  nodeOffline: ["Offline", "离线"],
+  nodeUnknown: ["Unknown", "未知"],
+  capabilities: ["Capabilities", "能力"],
+  noCapabilities: ["This node does not advertise any capabilities.", "此节点未公开能力。"],
+  singleTurn: ["Single turn", "单轮"],
+  multiTurn: ["Multi-turn", "可续接"],
+  clarify: ["Can ask questions", "支持澄清"],
+  call: ["Call", "调用"],
   refresh: ["Refresh", "刷新"],
   newTask: ["New task", "发起任务"],
   languageName: ["简体中文", "English"],
@@ -28,7 +46,7 @@ const language = {
   brokerOnline: ["Broker connected", "Broker 已连接"],
   brokerOffline: ["Broker disconnected", "Broker 已断开"],
   accessTitle: ["Open the local access link", "使用本地访问链接"],
-  accessMessage: ["Open a fresh link from the CLI to view your tasks.", "请使用 CLI 生成的新链接打开任务工作台。"],
+  accessMessage: ["Open a fresh link from the CLI to view your mesh.", "请使用 CLI 生成的新链接打开工作台。"],
   noJobs: ["No tasks yet. Start a task or check back after your next CLI or MCP call.", "暂无任务。可发起任务，CLI 或 MCP 的调用也会显示在这里。"],
   noWaiting: ["No unanswered questions in the latest 100 rounds.", "最近 100 轮没有待回答的问题。"],
   noSelection: ["Select a task", "选择任务"],
@@ -114,22 +132,27 @@ function openToken() {
     const token = fragment.get("token");
     history.replaceState(history.state, "", location.pathname + location.search);
     write(tokenKey, token || null);
-    return token;
+    return { token, fresh: true };
   }
-  return read(tokenKey);
+  return { token: read(tokenKey), fresh: false };
 }
 
 const saved = savedWorkspace();
+const access = openToken();
 const state = {
-  token: openToken(),
+  token: access.token,
   locale: saved.locale ?? (navigator.languages?.[0] || navigator.language || "").toLowerCase().startsWith("zh"),
+  view: !access.fresh && saved.view === "tasks" ? "tasks" : "nodes",
+  nodeId: saved.nodeId || null,
   selected: saved.selected || null,
   filter: saved.filter === "waiting" ? "waiting" : "recent",
   drafts: saved.drafts || {},
   composerDrafts: saved.composerDrafts || {},
-  composeKey: saved.composeKey || null,
+  composeKey: access.fresh ? null : saved.composeKey || null,
   jobs: new Map(),
   agents: [],
+  localNode: null,
+  brokerConnected: null,
   refreshed: false,
   agentReady: false,
   listError: null,
@@ -152,6 +175,8 @@ function t(key) {
 function persist() {
   write(storageKey, JSON.stringify({
     locale: state.locale,
+    view: state.view,
+    nodeId: state.nodeId,
     selected: state.selected,
     filter: state.filter,
     drafts: state.drafts,
@@ -162,12 +187,13 @@ function persist() {
 
 function applyLanguage() {
   document.documentElement.lang = state.locale ? "zh-CN" : "en";
-  document.title = `${t("workspace")} · Agent Mesh`;
   for (const n of document.querySelectorAll("[data-text]")) n.textContent = t(n.dataset.text);
   for (const n of document.querySelectorAll("[data-label]")) n.setAttribute("aria-label", t(n.dataset.label));
   for (const n of document.querySelectorAll("[data-placeholder]")) n.placeholder = t(n.dataset.placeholder);
-  byId("language").textContent = t("languageName");
-  byId("language").setAttribute("aria-label", t("languageLabel"));
+  const switcher = byId("language");
+  switcher.textContent = t("languageName");
+  switcher.lang = state.locale ? "en" : "zh-CN";
+  switcher.title = t("languageLabel");
 }
 
 function node(tag, className, ...children) {
@@ -313,15 +339,17 @@ function agentLabel(id) {
 }
 
 function agentStatus(id) {
+  if (state.agentError || state.brokerConnected === false) return "unknown";
   return agent(id)?.status || "unknown";
 }
 
 function brokerOffline() {
-  return state.agentReady && state.agents.length > 0 && state.agents.every((item) => item.status === "unknown");
+  return state.brokerConnected !== null ? !state.brokerConnected
+    : state.agentReady && state.agents.length > 0 && state.agents.every((item) => item.status === "unknown");
 }
 
 function localIssue() {
-  const errors = [state.listError?.code, state.agentError?.code];
+  const errors = [state.agentError?.code, state.view === "tasks" ? state.listError?.code : null];
   if (errors.includes("DAEMON_UNAVAILABLE")) return "daemonUnavailable";
   if (errors.includes("NETWORK")) return "localUnavailable";
   return null;
@@ -342,7 +370,8 @@ function renderHeader() {
   } else if (brokerOffline()) {
     status = "brokerOffline";
     color = "warning";
-  } else if (state.agentReady && state.agents.some((item) => item.status === "online" || item.status === "offline")) {
+  } else if (state.brokerConnected === true
+      || (state.agentReady && state.agents.some((item) => item.status === "online" || item.status === "offline"))) {
     status = "brokerOnline";
     color = "good";
   } else if (state.refreshed || state.agentReady) {
@@ -352,8 +381,135 @@ function renderHeader() {
   byId("connection-label").textContent = t(status);
   byId("refresh").disabled = !state.token || !!state.refreshRequest;
   byId("new-task").disabled = !state.token;
+  byId("new-task").hidden = !state.token || state.view !== "tasks";
   byId("access").hidden = !!state.token;
-  byId("workspace").hidden = !state.token;
+  byId("main-navigation").hidden = !state.token;
+  byId("nodes-pane").hidden = !state.token || state.view !== "nodes";
+  byId("workspace").hidden = !state.token || state.view !== "tasks";
+  const title = t(state.view);
+  byId("page-title").textContent = title;
+  document.title = `${title} · Agent Mesh`;
+  for (const view of ["nodes", "tasks"]) {
+    const tab = byId(`${view}-nav`);
+    if (view === state.view) tab.setAttribute("aria-current", "page");
+    else tab.removeAttribute("aria-current");
+  }
+}
+
+function capabilityCount(count) {
+  return state.locale ? `${count} 项能力` : `${count} ${count === 1 ? "capability" : "capabilities"}`;
+}
+
+function nodeStatus(status) {
+  const value = status === "online" ? "Online" : status === "offline" ? "Offline" : "Unknown";
+  return node("span", `status node-${value.toLowerCase()}`, t(`node${value}`));
+}
+
+function nodeRows() {
+  return state.agents.map((item) => ({
+    id: item.id,
+    label: item.name || item.id,
+    status: agentStatus(item.id),
+    local: item.id === state.localNode,
+    methods: capabilities(item.id).map((capability) => capability.method),
+  })).sort((first, second) => {
+    const priority = (row) => (row.status === "online" ? 2 : 0) + (row.methods.length ? 1 : 0);
+    return priority(second) - priority(first);
+  });
+}
+
+let nodeListKey = "";
+function renderNodeList(rows) {
+  setMessage("nodes-error", state.agentError ? `${t("targetError")} ${errorMessage(state.agentError)}` : "");
+  const isMissingLocalCard = state.localNode && !agent(state.localNode);
+  const emptyMessage = !state.agentReady ? "loading" : "noNodes";
+  const localIdentity = isMissingLocalCard ? `${t("localNode")} · ${state.localNode}` : "";
+  setMessage("local-node-note", localIdentity);
+  setMessage("nodes-empty", rows.length || state.agentError ? "" : t(emptyMessage));
+
+  const key = JSON.stringify([rows, state.nodeId, state.locale]);
+  if (key === nodeListKey) return;
+  nodeListKey = key;
+  const list = byId("node-list");
+  const focused = document.activeElement?.dataset.node;
+  list.replaceChildren(...rows.map((item) => {
+    const row = button("", "task-row node-row", () => selectNode(item.id, { scroll: true }));
+    row.dataset.node = item.id;
+    if (item.id === state.nodeId) row.setAttribute("aria-current", "true");
+    const name = node("span", "node-name-line", node("strong", "node-name", item.label));
+    if (item.local) name.append(node("span", "local-mark", t("localNode")));
+    const meta = [item.label !== item.id ? item.id : "", capabilityCount(item.methods.length)].filter(Boolean).join(" · ");
+    row.append(name, nodeStatus(item.status), node("span", "task-meta", meta));
+    if (item.methods.length) {
+      row.append(node("span", "task-preview node-method-preview", item.methods.slice(0, 3).join(" · ")));
+    }
+    return node("li", "", row);
+  }));
+  if (focused) [...list.querySelectorAll("button")].find((item) => item.dataset.node === focused)?.focus({ preventScroll: true });
+}
+
+let nodeDetailKey = "";
+function renderNodeDetail(selected) {
+  const host = byId("node-content");
+  const methods = selected ? capabilities(selected.id) : [];
+  const blocked = connectionUnavailable();
+  const key = JSON.stringify([selected, methods, blocked, state.locale, state.nodeId]);
+  if (key === nodeDetailKey) return;
+  nodeDetailKey = key;
+  if (!selected) {
+    const heading = node("h2", "", t(state.nodeId ? "nodeMissing" : "selectNode"));
+    heading.id = "node-title";
+    host.replaceChildren(node("div", "empty", heading, node("p", "", t(state.nodeId ? "chooseNode" : "nodeHint"))));
+    return;
+  }
+
+  const heading = node("h2", "node-detail-title", selected.label);
+  heading.id = "node-title";
+  const header = node("div", "detail-header", heading, nodeStatus(selected.status));
+  const meta = [selected.label !== selected.id ? selected.id : "", selected.local ? t("localNode") : ""].filter(Boolean);
+  const views = [header];
+  if (meta.length) views.push(node("p", "detail-meta", meta.join(" · ")));
+  const capabilitiesHeader = node("div", "capability-header",
+    node("h3", "", t("capabilities")),
+    node("span", "capability-count", String(methods.length)));
+  views.push(capabilitiesHeader);
+  if (!methods.length) {
+    views.push(node("p", "capability-empty", t("noCapabilities")));
+  } else {
+    if (blocked) views.push(node("p", "capability-empty", t("cannotSubmit")));
+    views.push(node("ul", "capability-list", ...methods.map((capability) => {
+      const action = button(t("call"), "button primary capability-call", (event) =>
+        openComposer({ target: selected.id, method: capability.method, opener: event.currentTarget }));
+      action.setAttribute("aria-label", `${t("call")} ${capability.method}`);
+      action.disabled = blocked;
+      const interaction = capability.interaction === "clarify" ? "clarify"
+        : capability.interaction === "session" ? "multiTurn" : "singleTurn";
+      const title = node("h4", "capability-method", capability.method);
+      const body = node("div", "capability-body", title, node("p", "capability-behavior", t(interaction)));
+      if (capability.description) body.append(node("p", "capability-text", capability.description));
+      return node("li", "capability-item", body, action);
+    })));
+  }
+  host.replaceChildren(...views);
+}
+
+function renderNodes() {
+  const rows = nodeRows();
+  if (!state.nodeId && rows.length) {
+    state.nodeId = rows[0].id;
+    persist();
+  }
+  renderNodeList(rows);
+  renderNodeDetail(rows.find((row) => row.id === state.nodeId));
+}
+
+function selectNode(id, { scroll = false } = {}) {
+  if (id !== state.nodeId) {
+    state.nodeId = id;
+    persist();
+    renderNodes();
+  }
+  if (scroll && matchMedia("(max-width: 675px)").matches) byId("node-panel").scrollIntoView({ block: "start" });
 }
 
 let queueKey = "";
@@ -545,7 +701,9 @@ function renderDetails() {
   if (sessionId && ["succeeded", "failed", "needs_input"].includes(stateOf(activeJob))
       && (!questionState(activeJob) || questionState(activeJob) === "expired")
       && (info(activeJob).error?.code !== "SESSION_NOT_FOUND")) {
-    actions.append(button(t("continueSession"), "text-button", () => openComposer(activeJob, sessionId)));
+    actions.append(button(t("continueSession"), "text-button", (event) => openComposer({
+      target: activeJob.target_id, method: activeJob.method, session: sessionId, opener: event.currentTarget,
+    })));
   }
   const view = [
     node("div", "detail-header", heading, statusBadge(displayState(activeJob))),
@@ -566,9 +724,28 @@ function renderDetails() {
 function render() {
   renderHeader();
   if (!state.token) return;
-  renderQueue();
-  renderDetails();
+  if (state.view === "nodes") renderNodes();
+  else {
+    renderQueue();
+    renderDetails();
+  }
   if (byId("compose").open) renderComposer();
+}
+
+function switchView(view, { load = true } = {}) {
+  if (state.view === view) return;
+  state.view = view;
+  if (view === "nodes") {
+    state.detailRequest?.abort();
+    state.detailRequest = null;
+  }
+  persist();
+  render();
+  if (load) void refreshLists().then(() => {
+    if (state.view === "tasks" && !state.detailRequest && state.detailData?.job_id !== state.selected) {
+      void refreshDetail();
+    }
+  });
 }
 
 function reconcileAnswers() {
@@ -592,24 +769,35 @@ function reconcileAnswers() {
 
 function refreshLists() {
   if (!state.token) return Promise.resolve();
-  if (state.refreshRequest) return state.refreshRequest;
-  state.refreshRequest = Promise.allSettled([api("jobs", { limit: localLimit }), api("list")])
+  const view = state.view;
+  if (state.refreshRequest) {
+    const current = state.refreshRequest;
+    return current.view === view ? current.promise : current.promise.then(refreshLists);
+  }
+  const jobsRequest = view === "tasks" ? api("jobs", { limit: localLimit }) : null;
+  const promise = Promise.allSettled([jobsRequest, api("list")])
     .then(([jobs, agents]) => {
       if (!state.token) return;
-      if (jobs.status === "fulfilled") {
-        state.jobs = new Map(jobs.value.jobs.map((job) => [job.job_id, job]));
-        state.listError = null;
-        state.refreshed = true;
-        reconcileAnswers();
-        if (!state.selected && state.jobs.size) selectJob(state.jobs.keys().next().value, { query: false });
-      } else {
-        state.listError = jobs.reason;
+      if (jobsRequest) {
+        if (jobs.status === "fulfilled") {
+          state.jobs = new Map(jobs.value.jobs.map((job) => [job.job_id, job]));
+          state.listError = null;
+          state.refreshed = true;
+          reconcileAnswers();
+          if (!state.selected && state.jobs.size) selectJob(state.jobs.keys().next().value, { query: false });
+        } else {
+          state.listError = jobs.reason;
+        }
       }
       if (agents.status === "fulfilled") {
         state.agents = agents.value.agents;
+        state.localNode = agents.value.local_id || null;
+        state.brokerConnected = typeof agents.value.broker_connected === "boolean"
+          ? agents.value.broker_connected : null;
         state.agentReady = true;
         state.agentError = null;
       } else {
+        state.brokerConnected = null;
         state.agentReady = false;
         state.agentError = agents.reason;
       }
@@ -617,13 +805,14 @@ function refreshLists() {
       state.refreshRequest = null;
       render();
     });
+  state.refreshRequest = { view, promise };
   renderHeader();
-  return state.refreshRequest;
+  return promise;
 }
 
 async function refreshDetail() {
   const id = state.selected;
-  if (!id || !state.token) return;
+  if (!id || !state.token || state.view !== "tasks") return;
   state.detailRequest?.abort();
   const request = new AbortController();
   state.detailRequest = request;
@@ -660,11 +849,13 @@ function composer() {
   return state.composerDrafts[state.composeKey] || {};
 }
 
-function openComposer(job = null, session = null) {
+let composerFocus = null;
+function openComposer({ target, method, session, opener } = {}) {
   if (!state.token) return;
-  state.composeKey = session || "new";
+  composerFocus = opener || null;
+  state.composeKey = session || (target && method ? JSON.stringify([target, method]) : "new");
   state.composerDrafts[state.composeKey] ||= { format: "prompt", prompt: "", json: "" };
-  if (job) Object.assign(composer(), { target: job.target_id, method: job.method, session });
+  if (target && method) Object.assign(composer(), { target, method, session, pinned: true });
   persist();
   showComposer();
 }
@@ -678,6 +869,20 @@ function showComposer() {
   setMessage("compose-message", "");
   renderComposer();
   if (!byId("compose").open) byId("compose").showModal();
+}
+
+function restoreComposerFocus() {
+  const origin = composerFocus;
+  composerFocus = null;
+  if (!state.token) return;
+  if (origin?.isConnected && !origin.disabled && !origin.closest("[hidden]")) {
+    origin.focus();
+    return;
+  }
+  const fallback = state.view === "nodes"
+    ? byId("node-list").querySelector('[aria-current="true"]')
+    : byId(state.selected ? "detail-panel" : "new-task");
+  (fallback || byId(`${state.view}-nav`)).focus();
 }
 
 function options(id, values, selected) {
@@ -712,8 +917,19 @@ function renderComposer() {
   const choices = methods.map((item) => [item.method, item.method]);
   if (draft.method && !choices.some(([name]) => name === draft.method)) choices.push([draft.method, draft.method]);
   options("method", [["", t("chooseMethod")], ...choices], draft.method || "");
-  byId("target").disabled = !!draft.session || state.submittingTask;
-  byId("method").disabled = !!draft.session || state.submittingTask;
+  const pinned = !!draft.pinned || !!draft.session;
+  byId("compose-context").hidden = !pinned;
+  byId("compose-selects").hidden = pinned;
+  if (pinned) {
+    const label = agentLabel(draft.target);
+    byId("compose-node").textContent = label !== draft.target ? `${label} (${draft.target})` : label;
+    byId("compose-method").textContent = draft.method;
+  }
+  for (const id of ["target", "method"]) {
+    const select = byId(id);
+    select.disabled = pinned || state.submittingTask;
+    select.required = !pinned;
+  }
   byId("compose-title").textContent = t(draft.session ? "continueSession" : "newTask");
   setMessage("compose-session", draft.session ? `${t("sessionId")} · ${draft.session}` : "");
   const capability = methods.find((item) => item.method === draft.method);
@@ -769,6 +985,7 @@ async function submitTask(event) {
     const args = { target: draft.target, method: draft.method, params };
     if (draft.session) args.session_id = draft.session;
     const job = await api("invoke", args);
+    switchView("tasks", { load: false });
     selectJob(job.job_id, { query: false, detail: job });
     if (job.invoke_error && job.invoke_error.code !== "OUTCOME_UNKNOWN") {
       if (state.composeKey === composeKey) setMessage("compose-message", problem(job.invoke_error));
@@ -778,7 +995,13 @@ async function submitTask(event) {
         draft.json = "";
       }
       persist();
-      if (state.composeKey === composeKey) byId("compose").close();
+      const dialog = byId("compose");
+      if (state.composeKey === composeKey && dialog.open) {
+        composerFocus = byId("detail-panel");
+        dialog.close();
+      } else if (!dialog.open) {
+        byId("detail-panel").focus();
+      }
       announce(t("taskSent"));
     }
     await refreshLists();
@@ -843,15 +1066,18 @@ byId("refresh").addEventListener("click", () => {
   void refreshLists();
   void refreshDetail();
 });
+byId("nodes-nav").addEventListener("click", () => switchView("nodes"));
+byId("tasks-nav").addEventListener("click", () => switchView("tasks"));
 byId("recent-filter").addEventListener("click", () => chooseFilter("recent"));
 byId("waiting-filter").addEventListener("click", () => chooseFilter("waiting"));
-byId("new-task").addEventListener("click", () => openComposer());
+byId("new-task").addEventListener("click", (event) => openComposer({ opener: event.currentTarget }));
 byId("close-compose").addEventListener("click", () => byId("compose").close());
 byId("cancel-compose").addEventListener("click", () => byId("compose").close());
 byId("compose").addEventListener("close", () => {
   if (byId("compose").open) return;
   state.composeKey = null;
   persist();
+  restoreComposerFocus();
 });
 byId("target").addEventListener("change", (event) => {
   composer().target = event.target.value;
@@ -889,6 +1115,7 @@ byId("compose-form").addEventListener("submit", submitTask);
 byId("reply-form").addEventListener("submit", submitReply);
 
 applyLanguage();
+if (access.fresh) persist();
 render();
 if (state.token) {
   void refreshLists().then(() => refreshDetail());

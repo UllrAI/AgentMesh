@@ -28,6 +28,7 @@ def create_app(socket: str, token: str) -> web.Application:
         return web.FileResponse(
             ASSETS / name,
             headers={
+                "Cache-Control": "no-cache",
                 "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'",
                 "Referrer-Policy": "no-referrer",
             },

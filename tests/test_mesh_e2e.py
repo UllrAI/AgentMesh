@@ -310,10 +310,6 @@ async def test_cli_and_mcp_find_lost_question_after_broker_reconnect(demo):
 async def test_browser_workbench_answers_a_cli_task(demo):
     await demo.start_node("worker")
     await demo.start_node("caller")
-    await demo.expect_node("caller", "worker", "online")
-    question = await demo.cli(
-        "caller", "call", "worker", METHOD, "--prompt", "Review orders", "--wait"
-    )
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         *CLI,
@@ -335,6 +331,42 @@ async def test_browser_workbench_answers_a_cli_task(demo):
             headers={"Authorization": f"Bearer {token}"},
             trust_env=False,
         ) as browser:
+
+            async def list_nodes():
+                response = await browser.post("/api/list", json={})
+                response.raise_for_status()
+                discovery = response.json()
+                return discovery, {node["id"]: node for node in discovery["agents"]}
+
+            async def online_nodes():
+                discovery, nodes = await list_nodes()
+                if set(nodes) == {"caller", "worker"} and all(
+                    node["status"] == "online" for node in nodes.values()
+                ):
+                    return discovery, nodes
+
+            discovery, online = await eventually(
+                online_nodes, "UI to list both nodes as online"
+            )
+            assert discovery["local_id"] == "caller"
+            assert discovery["broker_connected"] is True
+            assert online["caller"]["capabilities"] == []
+            (capability,) = online["worker"]["capabilities"]
+            assert capability["method"] == METHOD
+            assert (
+                capability["description"]
+                == "Analyze the demo project with an explicit API or Web scope"
+            )
+
+            question = await demo.cli(
+                "caller",
+                "call",
+                "worker",
+                METHOD,
+                "--prompt",
+                "Review orders",
+                "--wait",
+            )
             jobs = (await browser.post("/api/jobs", json={})).json()["jobs"]
             assert jobs[0]["job_id"] == question["job_id"]
             assert jobs[0]["answer"]["status"] == "waiting"
@@ -342,14 +374,26 @@ async def test_browser_workbench_answers_a_cli_task(demo):
                 "/api/answer", json={"job_id": question["job_id"], "text": "API"}
             )
             answer.raise_for_status()
+            result = await demo.cli(
+                "caller", "job", answer.json()["job_id"], "--wait-timeout-s", "5"
+            )
+            assert result["session_id"] == question["session_id"]
+            assert result["result"]["text"] == "Review orders | API"
+
+            await stop(demo.nodes["worker"])
+
+            async def offline_worker():
+                _, nodes = await list_nodes()
+                if nodes.get("worker", {}).get("status") == "offline":
+                    return nodes
+
+            offline = await eventually(
+                offline_worker, "UI to retain the offline worker"
+            )
+            assert offline["caller"] == online["caller"]
+            assert offline["worker"] == {**online["worker"], "status": "offline"}
     finally:
         await stop(process)
-
-    result = await demo.cli(
-        "caller", "job", answer.json()["job_id"], "--wait-timeout-s", "5"
-    )
-    assert result["session_id"] == question["session_id"]
-    assert result["result"]["text"] == "Review orders | API"
 
 
 async def test_target_sigkill_recovers_history_and_execution_slot(demo):

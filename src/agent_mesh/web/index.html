@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <title>Agent Mesh</title>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
@@ -12,26 +12,39 @@
 <body>
   <header class="topbar">
     <div class="topbar-inner">
-      <div class="brand">
-        <span class="mesh-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span>Agent Mesh</span>
-      </div>
+      <div class="brand">Agent Mesh</div>
+      <nav id="main-navigation" class="main-navigation" data-label="mainNavigation" hidden>
+        <button type="button" class="nav-button" id="nodes-nav" aria-controls="nodes-pane" aria-current="page" data-text="nodes"></button>
+        <button type="button" class="nav-button" id="tasks-nav" aria-controls="workspace" data-text="tasks"></button>
+      </nav>
       <div class="toolbar">
         <span id="connection" class="connection"><span class="connection-dot" aria-hidden="true"></span><span id="connection-label"></span></span>
         <button type="button" id="language" class="button language"></button>
         <button type="button" id="refresh" class="button" disabled><span class="refresh-glyph" aria-hidden="true">↻</span><span data-text="refresh"></span></button>
-        <button type="button" id="new-task" class="button primary" disabled><span class="plus" aria-hidden="true">+</span><span data-text="newTask"></span></button>
+        <button type="button" id="new-task" class="button primary" disabled hidden><span class="plus" aria-hidden="true">+</span><span data-text="newTask"></span></button>
       </div>
     </div>
   </header>
 
   <main class="main">
-    <h1 data-text="workspace"></h1>
+    <h1 id="page-title"></h1>
     <div id="announcements" class="sr-only" role="status"></div>
     <section id="access" class="empty access" hidden>
       <h2 data-text="accessTitle"></h2>
       <p data-text="accessMessage"></p>
     </section>
+    <div id="nodes-pane" class="workspace" hidden>
+      <section class="queue surface" aria-labelledby="directory-title">
+        <h2 id="directory-title" class="sr-only" data-text="nodeDirectory"></h2>
+        <p id="local-node-note" class="local-node-note" hidden></p>
+        <p id="nodes-error" class="notice warning queue-error" role="status" hidden></p>
+        <div id="nodes-empty" class="empty" hidden></div>
+        <ul id="node-list" class="task-list node-list"></ul>
+      </section>
+      <section id="node-panel" class="detail surface" aria-labelledby="node-title">
+        <div id="node-content"></div>
+      </section>
+    </div>
     <div id="workspace" class="workspace" hidden>
       <section class="queue surface" aria-labelledby="queue-title">
         <div class="queue-header">
@@ -49,7 +62,7 @@
         <ul id="task-list" class="task-list"></ul>
       </section>
 
-      <section id="detail-panel" class="detail surface" aria-labelledby="detail-title">
+      <section id="detail-panel" class="detail surface" aria-labelledby="detail-title" tabindex="-1">
         <div id="detail-content"></div>
         <form id="reply-form" class="reply-form" hidden>
           <label for="reply-input" data-text="replyLabel"></label>
@@ -70,8 +83,13 @@
         <button type="button" id="close-compose" class="button close" data-label="close">×</button>
       </header>
       <div class="dialog-body">
+        <p id="compose-context" class="compose-context" hidden>
+          <span id="compose-node" class="compose-node"></span>
+          <span class="compose-context-separator" aria-hidden="true">·</span>
+          <code id="compose-method" class="compose-method"></code>
+        </p>
         <p id="compose-session" class="session-line" hidden></p>
-        <div class="form-columns">
+        <div id="compose-selects" class="form-columns">
           <label><span data-text="target"></span><select id="target" required></select></label>
           <label><span data-text="method"></span><select id="method" required></select></label>
         </div>

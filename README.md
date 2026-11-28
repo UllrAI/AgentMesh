@@ -46,7 +46,25 @@ uv run agent-mesh serve --config "$HOME/.agent-mesh/demo/caller.yaml"
 
 On Linux distributions that restrict the Mosquitto service to system configuration paths, use the [container command](docs/deployment.md#local-demo-on-linux-with-apparmor) for Terminal 1.
 
-In a fourth terminal, list the nodes and call the worker. It asks which part of the project to analyze. The CLI prints an answer command containing the question's actual job ID.
+## Open the local workbench
+
+![The node directory shows the local caller, the worker, and its advertised method.](docs/images/node-workspace.png)
+
+The workbench opens on the node view. See which nodes the caller has discovered, check their online status, and read what their methods do. Choose a method on the target node to send a request.
+
+With the demo caller daemon running, use a fourth terminal on the same machine.
+
+```sh
+uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock"
+```
+
+Open the task view to find an earlier request, read its result, or answer a clarifying question. If two jobs have the same question, use the request previews to find the right one. You can switch between views while your tasks continue to run.
+
+The command opens the browser by default. Use `--no-open` to print the link and open it yourself. The interface uses English or Chinese based on your browser language and follows your system’s light or dark appearance. Press Ctrl+C in the workbench terminal to stop its page server. The caller daemon and accepted tasks continue running. [Workbench access details](docs/deployment.md#local-workbench)
+
+## Use the CLI
+
+In a separate terminal, list the nodes and call the worker. It asks which part of the project to analyze. The CLI prints an answer command containing the question's actual job ID.
 
 ```sh
 export AGENT_MESH_SOCKET="$HOME/.agent-mesh/demo/caller.sock"
@@ -66,20 +84,6 @@ uv run agent-mesh call worker demo.analyze --params '{"prompt":"Analyze the modu
 ### Find a task again
 
 `jobs` reads recent outbound tasks from the caller's local database, including when offline. Use `job JOB_ID` to see the current snapshot and the latest confirmed answer. A `needs_input` result carries a question and deadline. A `succeeded` result carries the output. For an independent follow-up in the same conversation, call the original target and method with `--session SESSION_ID`. Interactive calls wait up to 30 seconds by default. Use `--async` to return immediately or `--wait` in a script.
-
-## Open the local task workbench
-
-[View the demo workbench answering a clarification (Simplified Chinese screenshot).](docs/images/task-workbench.zh-CN.png)
-
-If you closed the terminal before a task finished or have several tasks in flight, the workbench lets you find recent outbound jobs, answer clarifying questions, and read results. A short preview of the submitted text helps identify the right job when the worker asks identical questions about different requests. To start a task from the browser, choose a discovered agent and one of its advertised methods.
-
-With the demo caller daemon running, start the workbench from the checkout on the same machine.
-
-```sh
-uv run agent-mesh ui --socket "$HOME/.agent-mesh/demo/caller.sock"
-```
-
-The command opens the browser by default. Use `--no-open` to print the link and open it yourself. The interface uses English or Chinese based on your browser language. Press Ctrl+C in the workbench terminal to stop its page server. The caller daemon and accepted tasks continue running. [Workbench access details](docs/deployment.md#local-task-workbench)
 
 ## Connect an MCP client
 
